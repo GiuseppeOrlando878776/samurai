@@ -27,42 +27,42 @@ namespace samurai {
 
     // 2D configurations: left flux
     template<class Flux, class Field>
-    inline auto left_flux(const Flux& F, const Field& q, const Flux& vel) const {
+    inline auto left_flux(const Field& q, const Flux& vel) const {
       const auto& lambda = xt::maximum(xt::abs(vel(0, level, i - 1, j)),
                                        xt::abs(vel(0, level, i, j)));
 
-      return flux(F(0, level, i - 1, j), F(0, level, i, j), q(level, i - 1, j), q(level, i, j), lambda);
+      return flux(vel(0, level, i - 1, j)*q(level, i - 1, j), vel(0, level, i, j)*q(level, i, j), q(level, i - 1, j), q(level, i, j), lambda);
     }
 
     // 2D configurations: right flux
     template<class Flux, class Field>
-    inline auto right_flux(const Flux& F, const Field& q, const Flux& vel) const {
+    inline auto right_flux(const Field& q, const Flux& vel) const {
       const auto& lambda = xt::maximum(xt::abs(vel(0, level, i, j)),
                                        xt::abs(vel(0, level, i + 1, j)));
 
-      return flux(F(0, level, i, j), F(0, level, i + 1, j), q(level, i, j), q(level, i + 1, j), lambda);
+      return flux(vel(0, level, i, j)*q(level, i, j), vel(0, level, i + 1, j)*q(level, i + 1, j), q(level, i, j), q(level, i + 1, j), lambda);
     }
 
     // 2D configurations: bottom flux
     template<class Flux, class Field>
-    inline auto down_flux(const Flux& F, const Field& q, const Flux& vel) const  {
+    inline auto down_flux(const Field& q, const Flux& vel) const  {
       const auto& lambda = xt::maximum(xt::abs(vel(1, level, i, j - 1)),
                                        xt::abs(vel(1, level, i, j)));
 
-      return flux(F(1, level, i, j - 1), F(1, level, i, j), q(level, i, j - 1), q(level, i, j), lambda);
+      return flux(vel(1, level, i, j - 1)*q(level, i, j - 1), vel(1, level, i, j)*q(level, i, j), q(level, i, j - 1), q(level, i, j), lambda);
     }
 
     // 2D configurations: up flux
     template<class Flux, class Field>
-    inline auto up_flux(const Flux& F, const Field& q, const Flux& vel) const {
+    inline auto up_flux(const Field& q, const Flux& vel) const {
       const auto& lambda = xt::maximum(xt::abs(vel(1, level, i, j)),
                                        xt::abs(vel(1, level, i, j + 1)));
 
-      return flux(F(1, level, i, j), F(1, level, i, j + 1), q(level, i, j), q(level, i, j + 1), lambda);
+      return flux(vel(1, level, i, j)*q(level, i, j), vel(1, level, i, j + 1)*q(level, i, j + 1), q(level, i, j), q(level, i, j + 1), lambda);
     }
   };
 
-  template <class... CT>
+  template<class... CT>
   inline auto upwind_variable(CT&&... e) {
     return make_field_operator_function<upwind_variable_op>(std::forward<CT>(e)...);
   }

@@ -146,7 +146,6 @@ int main(int argc, char* argv[]) {
   save(path, filename, suffix_init, mesh, alpha, u);
 
   // Start the loop
-  using mesh_id_t   = typename samurai::amr::Mesh<Config>::mesh_id_t;
   std::size_t nsave = 0;
   std::size_t nt    = 0;
   while(t != Tf) {
@@ -158,19 +157,9 @@ int main(int argc, char* argv[]) {
 
     std::cout << fmt::format("iteration {}: t = {}, dt = {}", ++nt, t, dt) << std::endl;
 
-    // Compute the flux
-    auto alpha_u = samurai::make_field<double, dim>("alpha_u", mesh);
-
-    samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
-                           [&](auto& cell)
-                           {
-                             alpha_u[cell][0] = u[cell][0]*alpha[cell];
-                             alpha_u[cell][1] = u[cell][1]*alpha[cell];
-                           });
-
     // Apply the numerical scheme
-    samurai::update_ghost(alpha, u, alpha_u);
-    alpha = alpha - dt*samurai::upwind_variable(alpha_u, alpha, u);
+    samurai::update_ghost(alpha, u);
+    alpha = alpha - dt*samurai::upwind_variable(alpha, u);
 
     // Save the results
     if(t >= static_cast<double>(nsave + 1) * dt_save || t == Tf) {
