@@ -62,12 +62,12 @@ auto init_velocity(Mesh& mesh) {
   samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
                          [&](auto& cell)
                          {
-                             auto center    = cell.center();
-                             const double x = center[0];
-                             const double y = center[1];
+                           auto center    = cell.center();
+                           const double x = center[0];
+                           const double y = center[1];
 
-                             u[cell][0] = -std::sin(PI*x)*std::sin(PI*x)*std::sin(2.0*PI*y);
-                             u[cell][1] = std::sin(PI*y)*std::sin(PI*y)*std::sin(2.0*PI*x);
+                           u[cell][0] = -std::sin(PI*x)*std::sin(PI*x)*std::sin(2.0*PI*y);
+                           u[cell][1] = std::sin(PI*y)*std::sin(PI*y)*std::sin(2.0*PI*x);
                          });
 
   return u;
@@ -146,6 +146,7 @@ int main(int argc, char* argv[]) {
   save(path, filename, suffix_init, mesh, alpha, u);
 
   // Start the loop
+  using mesh_id_t   = typename samurai::amr::Mesh<Config>::mesh_id_t;
   std::size_t nsave = 0;
   std::size_t nt    = 0;
   while(t != Tf) {
@@ -157,9 +158,19 @@ int main(int argc, char* argv[]) {
 
     std::cout << fmt::format("iteration {}: t = {}, dt = {}", ++nt, t, dt) << std::endl;
 
+    // Compute the flux
+    auto alpha_u = samurai::make_field<double, dim>("alpha_u", mesh);
+
+    samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
+                           [&](auto& cell)
+                           {
+                             alpha_u[cell][0] = u[cell][0]*alpha[cell];
+                             alpha_u[cell][1] = u[cell][1]*alpha[cell];
+                           });
+
     // Apply the numerical scheme
-    samurai::update_ghost(alpha, u);
-    alpha = alpha - dt*samurai::upwind_variable(u, alpha);
+    samurai::update_ghost(alpha, u, alpha_u);
+    alpha = alpha - dt*samurai::upwind_variable(alpha_u, alpha, u);
 
     // Save the results
     if(t >= static_cast<double>(nsave + 1) * dt_save || t == Tf) {

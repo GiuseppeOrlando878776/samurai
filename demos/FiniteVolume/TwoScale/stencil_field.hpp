@@ -19,46 +19,46 @@ namespace samurai {
     INIT_OPERATOR(upwind_variable_op)
 
     // Compute the flux along one direction
-    template<class T0, class T1>
-    inline auto flux(const T0& vel, const T1& ql, const T1& qr) const {
+    template<class Flux, class Field, class EigenValue>
+    inline auto flux(const Flux& Fl, const Flux& Fr, const Field& ql, const Field& qr, const EigenValue& lambda) const {
       // Upwind flux
-      return xt::eval(0.5*vel*(ql + qr) + 0.5*xt::abs(vel)*(ql - qr));
+      return xt::eval(0.5*(Fl + Fr) + 0.5*lambda*(ql - qr));
     }
 
     // 2D configurations: left flux
-    template <class T0, class T1>
-    inline auto left_flux(const T0& vel, const T1& q) const {
-      const auto& vel_at_interface = xt::eval(0.5*(vel(0, level, i - 1, j) +
-                                                   vel(0, level, i, j)));
+    template<class Flux, class Field>
+    inline auto left_flux(const Flux& F, const Field& q, const Flux& vel) const {
+      const auto& lambda = xt::maximum(xt::abs(vel(0, level, i - 1, j)),
+                                       xt::abs(vel(0, level, i, j)));
 
-      return flux(vel_at_interface, q(level, i - 1, j), q(level, i, j));
+      return flux(F(0, level, i - 1, j), F(0, level, i, j), q(level, i - 1, j), q(level, i, j), lambda);
     }
 
     // 2D configurations: right flux
-    template <class T0, class T1>
-    inline auto right_flux(const T0& vel, const T1& u) const {
-      const auto& vel_at_interface = xt::eval(0.5*(vel(0, level, i, j) +
-                                                   vel(0, level, i + 1, j)));
+    template<class Flux, class Field>
+    inline auto right_flux(const Flux& F, const Field& q, const Flux& vel) const {
+      const auto& lambda = xt::maximum(xt::abs(vel(0, level, i, j)),
+                                       xt::abs(vel(0, level, i + 1, j)));
 
-      return flux(vel_at_interface, u(level, i, j), u(level, i + 1, j));
+      return flux(F(0, level, i, j), F(0, level, i + 1, j), q(level, i, j), q(level, i + 1, j), lambda);
     }
 
     // 2D configurations: bottom flux
-    template <class T0, class T1>
-    inline auto down_flux(const T0& vel, const T1& u) const  {
-      const auto& vel_at_interface = xt::eval(0.5*(vel(1, level, i, j - 1) +
-                                                   vel(1, level, i, j)));
+    template<class Flux, class Field>
+    inline auto down_flux(const Flux& F, const Field& q, const Flux& vel) const  {
+      const auto& lambda = xt::maximum(xt::abs(vel(1, level, i, j - 1)),
+                                       xt::abs(vel(1, level, i, j)));
 
-      return flux(vel_at_interface, u(level, i, j - 1), u(level, i, j));
+      return flux(F(1, level, i, j - 1), F(1, level, i, j), q(level, i, j - 1), q(level, i, j), lambda);
     }
 
     // 2D configurations: up flux
-    template <class T0, class T1>
-    inline auto up_flux(const T0& vel, const T1& u) const {
-      const auto& vel_at_interface = xt::eval(0.5*(vel(1, level, i, j) +
-                                                   vel(1, level, i, j + 1)));
+    template<class Flux, class Field>
+    inline auto up_flux(const Flux& F, const Field& q, const Flux& vel) const {
+      const auto& lambda = xt::maximum(xt::abs(vel(1, level, i, j)),
+                                       xt::abs(vel(1, level, i, j + 1)));
 
-      return flux(vel_at_interface, u(level, i, j), u(level, i, j + 1));
+      return flux(F(1, level, i, j), F(1, level, i, j + 1), q(level, i, j), q(level, i, j + 1), lambda);
     }
   };
 
