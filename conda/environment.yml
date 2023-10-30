@@ -1,0 +1,14 @@
+name: samurai-env
+channels:
+  - conda-forge
+dependencies:
+  - cmake
+  - ninja
+  - xtensor
+  - highfive=2.5.1
+  - fmt
+  - pugixml
+  - cxxopts
+  - cli11
+  - pytest
+  - h5py

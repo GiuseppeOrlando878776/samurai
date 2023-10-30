@@ -1,0 +1,12 @@
+find_package(cxxopts)
+find_package(CLI11)
+
+add_subdirectory(from_obj)
+add_subdirectory(FiniteVolume)
+# add_subdirectory(LBM)
+add_subdirectory(p4est)
+add_subdirectory(pablo)
+add_subdirectory(tutorial)
+# add_subdirectory(Weno)
+add_subdirectory(multigrid)
+add_subdirectory(highorder)
