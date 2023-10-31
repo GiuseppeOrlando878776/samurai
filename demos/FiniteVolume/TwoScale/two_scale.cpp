@@ -15,35 +15,63 @@
 #include <filesystem>
 namespace fs = std::filesystem;
 
-// Create the volume fraction
+// Create the variable for "large-scale" mass of phase 1
 //
 template<class Mesh>
-auto init_alpha(Mesh& mesh) {
+auto init_m1(Mesh& mesh) {
   // Create the variable to fill the volume fraction values
-  auto alpha = samurai::make_field<double, 1>("alpha1", mesh);
+  auto m1 = samurai::make_field<double, 1>("m1", mesh);
+  m1.fill(1.0);
 
-  // Declare parameters that identify our bubble
-  constexpr double radius   = 0.15;
-  constexpr double x_center = 0.5;
-  constexpr double y_center = 0.75;
+  return m1;
+}
 
-  // Initialize the field
-  using mesh_id_t = typename Mesh::mesh_id_t;
 
-  samurai::for_each_cell(mesh[mesh_id_t::cells],
-                         [&](const auto& cell)
-                         {
-                             const auto center = cell.center();
-                             const double x    = center[0];
-                             const double y    = center[1];
+// Create the variable for mass of phase 2
+//
+template<class Mesh>
+auto init_m2(Mesh& mesh) {
+  // Create the variable to fill the volume fraction values
+  auto m2 = samurai::make_field<double, 1>("m2", mesh);
+  m2.fill(2.0);
 
-                             alpha[cell] = std::sqrt((x - x_center)*(x - x_center) + (y - y_center)*(y - y_center)) - radius;
-                         });
+  return m2;
+}
 
-  // Impose Neumann boundary conditions
-  samurai::make_bc<samurai::Neumann>(alpha, 0.0);
 
-  return alpha;
+// Create the variable for "small-scale" mass of phase 1
+//
+template<class Mesh>
+auto init_m1_d(Mesh& mesh) {
+  // Create the variable to fill the volume fraction values
+  auto m1_d = samurai::make_field<double, 1>("m1_d", mesh);
+  m1_d.fill(0.5);
+
+  return m1_d;
+}
+
+
+// Create the variable for "small-scale" volume fraction of phase 1
+//
+template<class Mesh>
+auto init_alpha1_d(Mesh& mesh) {
+  // Create the variable to fill the volume fraction values
+  auto alpha1_d = samurai::make_field<double, 1>("alpha1_d", mesh);
+  alpha1_d.fill(0.1);
+
+  return alpha1_d;
+}
+
+
+// Create the variable for \bar{alpha}\rho
+//
+template<class Mesh>
+auto init_rho_alpha1_bar(Mesh& mesh) {
+  // Create the variable to fill the volume fraction values
+  auto rho_alpha1_bar = samurai::make_field<double, 1>("rho_alpha1_bar", mesh);
+  rho_alpha1_bar.fill(1.75);
+
+  return rho_alpha1_bar;
 }
 
 
@@ -53,7 +81,6 @@ template<class Mesh, int dim>
 auto init_velocity(Mesh& mesh) {
   // Create the variable for the velocity
   auto u = samurai::make_field<double, dim>("u", mesh);
-  u.fill(0.0);
 
   // Initialize the velocity field
   using mesh_id_t = typename Mesh::mesh_id_t;
@@ -70,7 +97,25 @@ auto init_velocity(Mesh& mesh) {
                            u[cell][1] = std::sin(PI*y)*std::sin(PI*y)*std::sin(2.0*PI*x);
                          });
 
+  samurai::make_bc<samurai::Neumann>(u, 0.0, 0.0);
+
   return u;
+}
+
+
+// Implement the EOS for phase 1
+//
+template<class Field>
+auto EOS_phase1(const Field& rho1) {
+  return rho1;
+}
+
+
+// Implement the EOS for phase 2
+//
+template<class Field>
+auto EOS_phase2(const Field& rho2) {
+  return rho2;
 }
 
 
@@ -137,13 +182,48 @@ int main(int argc, char* argv[]) {
   const samurai::Box<double, dim> box(min_corner, max_corner);
   samurai::amr::Mesh<Config> mesh(box, start_level, min_level, max_level);
 
-  // Create the two fields
-  auto alpha = init_alpha(mesh);
-  auto u     = init_velocity<samurai::amr::Mesh<Config>, dim>(mesh);
+  // Create the fields
+  auto m1             = init_m1(mesh);
+  auto m2             = init_m2(mesh);
+  auto m1_d           = init_m1_d(mesh);
+  auto alpha1_d       = init_alpha1_d(mesh);
+  auto rho_alpha1_bar = init_rho_alpha1_bar(mesh);
+  auto u              = init_velocity<samurai::amr::Mesh<Config>, dim>(mesh);
+
+  // Create dependent unknown and other auxiliary useful fields
+  auto rho        = samurai::make_field<double, 1>("rho", mesh);
+  rho             = m1 + m2 + m1_d;
+  auto rho_u      = samurai::make_field<double, 1>("rho_u", mesh);
+  samurai::for_each_cell(mesh,
+                         [&](const auto& cell)
+                         {
+                           rho_u[cell] = rho[cell]*u[cell][0];
+                         });
+  auto rho_v      = samurai::make_field<double, 1>("rho_v", mesh);
+  samurai::for_each_cell(mesh,
+                         [&](const auto& cell)
+                         {
+                           rho_v[cell] = rho[cell]*u[cell][1];
+                         });
+  auto alpha1_bar = samurai::make_field<double, 1>("alpha1_bar", mesh);
+  alpha1_bar      = rho_alpha1_bar/rho;
+  auto alpha2_bar = samurai::make_field<double, 1>("alpha2_bar", mesh);
+  alpha2_bar      = 1.0 - alpha1_bar;
+  auto alpha1     = samurai::make_field<double, 1>("alpha1", mesh);
+  alpha1          = alpha1_bar*(1.0 - alpha1_d);
+  auto rho1       = samurai::make_field<double, 1>("rho1", mesh);
+  rho1            = m1/alpha1;
+  auto alpha2     = samurai::make_field<double, 1>("alpha2", mesh);
+  alpha2          = 1.0 - alpha1 - alpha1_d;
+  auto rho2       = samurai::make_field<double, 1>("rho2", mesh);
+  rho2            = m2/alpha2;
+  auto p_bar      = samurai::make_field<double, 1>("p_bar", mesh);
+  p_bar           = alpha1_bar*EOS_phase1(rho1) + alpha2_bar*EOS_phase2(rho2);
+  samurai::make_bc<samurai::Neumann>(p_bar, 0.0);
 
   // Save the initial condition
   const std::string suffix_init = (nfiles != 1) ? "_ite_0" : "";
-  save(path, filename, suffix_init, mesh, alpha, u);
+  save(path, filename, suffix_init, mesh, m1, m2, m1_d, alpha1_d, rho_alpha1_bar, rho_u, rho_v, u, alpha1_bar, alpha1, p_bar);
 
   // Start the loop
   std::size_t nsave = 0;
@@ -157,14 +237,36 @@ int main(int argc, char* argv[]) {
 
     std::cout << fmt::format("iteration {}: t = {}, dt = {}", ++nt, t, dt) << std::endl;
 
-    // Apply the numerical scheme
-    samurai::update_ghost(alpha, u);
-    alpha = alpha - dt*samurai::upwind_variable(alpha, u);
+    // TODO: Compute speed of sound and proper eigenvalue for Rusanov flux
+
+    // Apply the numerical scheme without relaxation
+    samurai::update_ghost(m1, m2, m1_d, alpha1_d, rho_alpha1_bar, rho_u, rho_v, u, p_bar);
+    m1             = m1 - dt*samurai::upwind_conserved_variable(m1, u);
+    m2             = m2 - dt*samurai::upwind_conserved_variable(m2, u);
+    m1_d           = m1_d - dt*samurai::upwind_conserved_variable(m1_d, u);
+    alpha1_d       = alpha1_d - dt*samurai::upwind_conserved_variable(alpha1_d, u);
+    rho_alpha1_bar = rho_alpha1_bar - dt*samurai::upwind_conserved_variable(rho_alpha1_bar, u);
+    rho_u          = rho_u - dt*samurai::upwind_horizontal_momentum(rho_u, p_bar, u);
+    rho_v          = rho_v - dt*samurai::upwind_vertical_momentum(rho_v, p_bar, u);
+
+    // Update auxiliary useful fields
+    rho        = m1 + m2 + m1_d;
+    alpha1_bar = rho_alpha1_bar/rho;
+    alpha2_bar = 1.0 - alpha1_bar;
+    alpha1     = alpha1_bar*(1.0 - alpha1_d);
+    rho1       = m1/alpha1;
+    alpha2     = 1.0 - alpha1 - alpha1_d;
+    rho2       = m2/alpha2;
+    p_bar      = alpha1_bar*EOS_phase1(rho1) + alpha2_bar*EOS_phase2(rho2);
+
+    // TODO: Apply relaxation
+
+    // TODO: Reupdate conserved variables and useful fields
 
     // Save the results
     if(t >= static_cast<double>(nsave + 1) * dt_save || t == Tf) {
       const std::string suffix = (nfiles != 1) ? fmt::format("_ite_{}", ++nsave) : "";
-      save(path, filename, suffix, mesh, alpha, u);
+      save(path, filename, suffix, mesh, m1, m2, m1_d, alpha1_d, rho_alpha1_bar, rho_u, rho_v, u, alpha1_bar, alpha1, p_bar);
     }
   }
 
