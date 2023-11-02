@@ -15,6 +15,14 @@
 #include <filesystem>
 namespace fs = std::filesystem;
 
+static const double p0          = 1e5;
+
+static const double rho0_phase1 = 1.0;
+static const double rho0_phase2 = 1e3;
+
+static const double c0_phase1   = 3.0;
+static const double c0_phase2   = 15.0;
+
 // Create the variable for "large-scale" mass of phase 1
 //
 template<class Mesh>
@@ -107,7 +115,7 @@ auto init_velocity(Mesh& mesh) {
 //
 template<class Field>
 auto EOS_phase1(const Field& rho1) {
-  return rho1;
+  return rho1 + 0.0*(p0 + c0_phase1*c0_phase1*(rho1 - rho0_phase1));
 }
 
 
@@ -115,7 +123,7 @@ auto EOS_phase1(const Field& rho1) {
 //
 template<class Field>
 auto EOS_phase2(const Field& rho2) {
-  return rho2;
+  return rho2 + 0.0*(p0 + c0_phase2*c0_phase2*(rho2 - rho0_phase2));
 }
 
 
@@ -249,19 +257,31 @@ int main(int argc, char* argv[]) {
     rho_u          = rho_u - dt*samurai::upwind_horizontal_momentum(rho_u, p_bar, u);
     rho_v          = rho_v - dt*samurai::upwind_vertical_momentum(rho_v, p_bar, u);
 
+    // Apply relaxation, which will modify alpha1_bar and, consequently, for what
+    // concerns next time step, rho_alpha1_bar and p_bar
+    const auto alpha1_bar_rho1 = m1/(1.0 - alpha1_d);
+    const auto alpha2_bar_rho2 = m2/(1.0 - alpha1_d);
+
+    const auto q      = rho0_phase2*c0_phase2*c0_phase2 - rho0_phase1*c0_phase1*c0_phase1;
+    const auto qtilde = alpha2_bar_rho2*c0_phase2*c0_phase2
+                      - alpha1_bar_rho1*c0_phase1*c0_phase1;
+
+    const auto betaPos = (q - qtilde +
+                          xt::sqrt((q - qtilde)*(q - qtilde) +
+                                   4.0*alpha1_bar_rho1*c0_phase1*c0_phase1*alpha2_bar_rho2*c0_phase2*c0_phase2))/
+                         (2.0*alpha2_bar_rho2*c0_phase2*c0_phase2);
+
+    alpha1_bar         = betaPos/(1.0 + betaPos);
+
     // Update auxiliary useful fields
-    rho        = m1 + m2 + m1_d;
-    alpha1_bar = rho_alpha1_bar/rho;
-    alpha2_bar = 1.0 - alpha1_bar;
-    alpha1     = alpha1_bar*(1.0 - alpha1_d);
-    rho1       = m1/alpha1;
-    alpha2     = 1.0 - alpha1 - alpha1_d;
-    rho2       = m2/alpha2;
-    p_bar      = alpha1_bar*EOS_phase1(rho1) + alpha2_bar*EOS_phase2(rho2);
-
-    // TODO: Apply relaxation
-
-    // TODO: Reupdate conserved variables and useful fields
+    rho            = m1 + m2 + m1_d;
+    rho_alpha1_bar = alpha1_bar*rho;
+    alpha2_bar     = 1.0 - alpha1_bar;
+    alpha1         = alpha1_bar*(1.0 - alpha1_d);
+    rho1           = m1/alpha1;
+    alpha2         = 1.0 - alpha1 - alpha1_d;
+    rho2           = m2/alpha2;
+    p_bar          = alpha1_bar*EOS_phase1(rho1) + alpha2_bar*EOS_phase2(rho2);
 
     // Save the results
     if(t >= static_cast<double>(nsave + 1) * dt_save || t == Tf) {
