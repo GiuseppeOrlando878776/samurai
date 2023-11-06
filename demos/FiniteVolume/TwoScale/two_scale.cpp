@@ -198,6 +198,10 @@ int main(int argc, char* argv[]) {
   auto rho_alpha1_bar = init_rho_alpha1_bar(mesh);
   auto vel            = init_velocity<samurai::amr::Mesh<Config>, dim>(mesh);
 
+  // Create the flux variable
+  auto flux = samurai::make_field<double, dim>("F", mesh);
+  samurai::make_bc<samurai::Neumann>(flux, 0.0, 0.0);
+
   // Create dependent unknown and other auxiliary useful fields
   auto rho        = samurai::make_field<double, 1>("rho", mesh);
   rho             = m1 + m2 + m1_d;
@@ -248,14 +252,56 @@ int main(int argc, char* argv[]) {
     // TODO: Compute speed of sound and proper eigenvalue for Rusanov flux
 
     // Apply the numerical scheme without relaxation
-    samurai::update_ghost(m1, m2, m1_d, alpha1_d, rho_alpha1_bar, rho_u, rho_v, vel, p_bar, flux);
-    m1             = m1 - dt*samurai::upwind_conserved_variable(m1, vel);
-    m2             = m2 - dt*samurai::upwind_conserved_variable(m2, vel);
-    m1_d           = m1_d - dt*samurai::upwind_conserved_variable(m1_d, vel);
-    alpha1_d       = alpha1_d - dt*samurai::upwind_conserved_variable(alpha1_d, vel);
-    rho_alpha1_bar = rho_alpha1_bar - dt*samurai::upwind_conserved_variable(rho_alpha1_bar, vel);
-    rho_u          = rho_u - dt*samurai::upwind_horizontal_momentum(rho_u, p_bar, vel);
-    rho_v          = rho_v - dt*samurai::upwind_vertical_momentum(rho_v, p_bar, vel);
+    samurai::for_each_cell(mesh,
+                           [&](const auto& cell)
+                           {
+                             flux[cell][0] = m1[cell]*vel[cell][0];
+                             flux[cell][1] = m1[cell]*vel[cell][1];
+                           });
+    samurai::update_ghost(m1, flux, vel);
+    m1 = m1 - dt*samurai::upwind_conserved_variable(m1, flux, vel);
+
+    samurai::for_each_cell(mesh,
+                           [&](const auto& cell)
+                           {
+                             flux[cell][0] = m2[cell]*vel[cell][0];
+                             flux[cell][1] = m2[cell]*vel[cell][1];
+                           });
+    samurai::update_ghost(m2, flux);
+    m2 = m2 - dt*samurai::upwind_conserved_variable(m2, flux, vel);
+
+    samurai::for_each_cell(mesh,
+                           [&](const auto& cell)
+                           {
+                             flux[cell][0] = m1_d[cell]*vel[cell][0];
+                             flux[cell][1] = m1_d[cell]*vel[cell][1];
+                           });
+    samurai::update_ghost(m1_d, flux);
+    m1_d = m1_d - dt*samurai::upwind_conserved_variable(m1_d, flux, vel);
+
+    samurai::for_each_cell(mesh,
+                           [&](const auto& cell)
+                           {
+                             flux[cell][0] = alpha1_d[cell]*vel[cell][0];
+                             flux[cell][1] = alpha1_d[cell]*vel[cell][1];
+                           });
+    samurai::update_ghost(alpha1_d, flux);
+    alpha1_d = alpha1_d - dt*samurai::upwind_conserved_variable(alpha1_d, flux, vel);
+
+    samurai::for_each_cell(mesh,
+                           [&](const auto& cell)
+                           {
+                             flux[cell][0] = rho_alpha1_bar[cell]*vel[cell][0];
+                             flux[cell][1] = rho_alpha1_bar[cell]*vel[cell][1];
+                           });
+    samurai::update_ghost(rho_alpha1_bar, flux);
+    rho_alpha1_bar = rho_alpha1_bar - dt*samurai::upwind_conserved_variable(rho_alpha1_bar, flux, vel);
+
+    samurai::update_ghost(rho_u, p_bar);
+    rho_u = rho_u - dt*samurai::upwind_horizontal_momentum(rho_u, p_bar, vel);
+
+    samurai::update_ghost(rho_v);
+    rho_v = rho_v - dt*samurai::upwind_vertical_momentum(rho_v, p_bar, vel);
 
     // Apply relaxation, which will modify alpha1_bar and, consequently, for what
     // concerns next time step, rho_alpha1_bar and p_bar
