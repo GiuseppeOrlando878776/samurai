@@ -252,7 +252,8 @@ int main(int argc, char* argv[]) {
     // TODO: Compute speed of sound and proper eigenvalue for Rusanov flux
 
     // Apply the numerical scheme without relaxation
-    samurai::for_each_cell(mesh,
+    using mesh_id_t = typename samurai::amr::Mesh<Config>::mesh_id_t;
+    samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
                            [&](const auto& cell)
                            {
                              flux[cell][0] = m1[cell]*vel[cell][0];
@@ -261,7 +262,7 @@ int main(int argc, char* argv[]) {
     samurai::update_ghost(m1, flux, vel);
     m1 = m1 - dt*samurai::upwind_conserved_variable(m1, flux, vel);
 
-    samurai::for_each_cell(mesh,
+    samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
                            [&](const auto& cell)
                            {
                              flux[cell][0] = m2[cell]*vel[cell][0];
@@ -270,7 +271,7 @@ int main(int argc, char* argv[]) {
     samurai::update_ghost(m2, flux);
     m2 = m2 - dt*samurai::upwind_conserved_variable(m2, flux, vel);
 
-    samurai::for_each_cell(mesh,
+    samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
                            [&](const auto& cell)
                            {
                              flux[cell][0] = m1_d[cell]*vel[cell][0];
@@ -279,7 +280,7 @@ int main(int argc, char* argv[]) {
     samurai::update_ghost(m1_d, flux);
     m1_d = m1_d - dt*samurai::upwind_conserved_variable(m1_d, flux, vel);
 
-    samurai::for_each_cell(mesh,
+    samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
                            [&](const auto& cell)
                            {
                              flux[cell][0] = alpha1_d[cell]*vel[cell][0];
@@ -288,7 +289,7 @@ int main(int argc, char* argv[]) {
     samurai::update_ghost(alpha1_d, flux);
     alpha1_d = alpha1_d - dt*samurai::upwind_conserved_variable(alpha1_d, flux, vel);
 
-    samurai::for_each_cell(mesh,
+    samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
                            [&](const auto& cell)
                            {
                              flux[cell][0] = rho_alpha1_bar[cell]*vel[cell][0];
@@ -297,11 +298,32 @@ int main(int argc, char* argv[]) {
     samurai::update_ghost(rho_alpha1_bar, flux);
     rho_alpha1_bar = rho_alpha1_bar - dt*samurai::upwind_conserved_variable(rho_alpha1_bar, flux, vel);
 
-    samurai::update_ghost(rho_u, p_bar);
-    rho_u = rho_u - dt*samurai::upwind_horizontal_momentum(rho_u, p_bar, vel);
+    samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
+                           [&](const auto& cell)
+                           {
+                             flux[cell][0] = rho_u[cell]*vel[cell][0] + p_bar[cell];
+                             flux[cell][1] = rho_u[cell]*vel[cell][1];
+                           });
+    samurai::update_ghost(rho_u, p_bar, flux);
+    rho_u = rho_u - dt*samurai::upwind_conserved_variable(rho_u, flux, vel);
 
-    samurai::update_ghost(rho_v);
-    rho_v = rho_v - dt*samurai::upwind_vertical_momentum(rho_v, p_bar, vel);
+    samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
+                           [&](const auto& cell)
+                           {
+                             flux[cell][0] = rho_v[cell]*vel[cell][0];
+                             flux[cell][1] = rho_v[cell]*vel[cell][1] + p_bar[cell];
+                           });
+    samurai::update_ghost(rho_v, p_bar, flux);
+    rho_v = rho_v - dt*samurai::upwind_conserved_variable(rho_v, flux, vel);
+
+    // Update auxiliary useful fields which are not modified by relaxation
+    rho = m1 + m2 + m1_d;
+    /*samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
+                           [&](const auto& cell)
+                           {
+                             vel[cell][0] = rho_u[cell]/rho[cell];
+                             vel[cell][1] = rho_v[cell]/rho[cell];
+                           });*/
 
     // Apply relaxation, which will modify alpha1_bar and, consequently, for what
     // concerns next time step, rho_alpha1_bar and p_bar
@@ -320,7 +342,6 @@ int main(int argc, char* argv[]) {
     alpha1_bar         = betaPos/(1.0 + betaPos);
 
     // Update auxiliary useful fields
-    rho            = m1 + m2 + m1_d;
     rho_alpha1_bar = alpha1_bar*rho;
     alpha2_bar     = 1.0 - alpha1_bar;
     alpha1         = alpha1_bar*(1.0 - alpha1_d);
