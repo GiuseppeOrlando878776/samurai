@@ -88,7 +88,7 @@ auto init_rho_alpha1_bar(Mesh& mesh) {
 template<class Mesh, int dim>
 auto init_velocity(Mesh& mesh) {
   // Create the variable for the velocity
-  auto u = samurai::make_field<double, dim>("u", mesh);
+  auto vel = samurai::make_field<double, dim>("vel", mesh);
 
   // Initialize the velocity field
   using mesh_id_t = typename Mesh::mesh_id_t;
@@ -101,13 +101,13 @@ auto init_velocity(Mesh& mesh) {
                            const double x = center[0];
                            const double y = center[1];
 
-                           u[cell][0] = -std::sin(PI*x)*std::sin(PI*x)*std::sin(2.0*PI*y);
-                           u[cell][1] = std::sin(PI*y)*std::sin(PI*y)*std::sin(2.0*PI*x);
+                           vel[cell][0] = -std::sin(PI*x)*std::sin(PI*x)*std::sin(2.0*PI*y);
+                           vel[cell][1] = std::sin(PI*y)*std::sin(PI*y)*std::sin(2.0*PI*x);
                          });
 
-  samurai::make_bc<samurai::Neumann>(u, 0.0, 0.0);
+  samurai::make_bc<samurai::Neumann>(vel, 0.0, 0.0);
 
-  return u;
+  return vel;
 }
 
 
@@ -196,7 +196,7 @@ int main(int argc, char* argv[]) {
   auto m1_d           = init_m1_d(mesh);
   auto alpha1_d       = init_alpha1_d(mesh);
   auto rho_alpha1_bar = init_rho_alpha1_bar(mesh);
-  auto u              = init_velocity<samurai::amr::Mesh<Config>, dim>(mesh);
+  auto vel            = init_velocity<samurai::amr::Mesh<Config>, dim>(mesh);
 
   // Create dependent unknown and other auxiliary useful fields
   auto rho        = samurai::make_field<double, 1>("rho", mesh);
@@ -205,13 +205,13 @@ int main(int argc, char* argv[]) {
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
                          {
-                           rho_u[cell] = rho[cell]*u[cell][0];
+                           rho_u[cell] = rho[cell]*vel[cell][0];
                          });
   auto rho_v      = samurai::make_field<double, 1>("rho_v", mesh);
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
                          {
-                           rho_v[cell] = rho[cell]*u[cell][1];
+                           rho_v[cell] = rho[cell]*vel[cell][1];
                          });
   auto alpha1_bar = samurai::make_field<double, 1>("alpha1_bar", mesh);
   alpha1_bar      = rho_alpha1_bar/rho;
@@ -231,7 +231,7 @@ int main(int argc, char* argv[]) {
 
   // Save the initial condition
   const std::string suffix_init = (nfiles != 1) ? "_ite_0" : "";
-  save(path, filename, suffix_init, mesh, m1, m2, m1_d, alpha1_d, rho_alpha1_bar, rho_u, rho_v, u, alpha1_bar, alpha1, p_bar);
+  save(path, filename, suffix_init, mesh, m1, m2, m1_d, alpha1_d, rho_alpha1_bar, rho_u, rho_v, vel, alpha1_bar, alpha1, p_bar);
 
   // Start the loop
   std::size_t nsave = 0;
@@ -248,14 +248,14 @@ int main(int argc, char* argv[]) {
     // TODO: Compute speed of sound and proper eigenvalue for Rusanov flux
 
     // Apply the numerical scheme without relaxation
-    samurai::update_ghost(m1, m2, m1_d, alpha1_d, rho_alpha1_bar, rho_u, rho_v, u, p_bar);
-    m1             = m1 - dt*samurai::upwind_conserved_variable(m1, u);
-    m2             = m2 - dt*samurai::upwind_conserved_variable(m2, u);
-    m1_d           = m1_d - dt*samurai::upwind_conserved_variable(m1_d, u);
-    alpha1_d       = alpha1_d - dt*samurai::upwind_conserved_variable(alpha1_d, u);
-    rho_alpha1_bar = rho_alpha1_bar - dt*samurai::upwind_conserved_variable(rho_alpha1_bar, u);
-    rho_u          = rho_u - dt*samurai::upwind_horizontal_momentum(rho_u, p_bar, u);
-    rho_v          = rho_v - dt*samurai::upwind_vertical_momentum(rho_v, p_bar, u);
+    samurai::update_ghost(m1, m2, m1_d, alpha1_d, rho_alpha1_bar, rho_u, rho_v, vel, p_bar, flux);
+    m1             = m1 - dt*samurai::upwind_conserved_variable(m1, vel);
+    m2             = m2 - dt*samurai::upwind_conserved_variable(m2, vel);
+    m1_d           = m1_d - dt*samurai::upwind_conserved_variable(m1_d, vel);
+    alpha1_d       = alpha1_d - dt*samurai::upwind_conserved_variable(alpha1_d, vel);
+    rho_alpha1_bar = rho_alpha1_bar - dt*samurai::upwind_conserved_variable(rho_alpha1_bar, vel);
+    rho_u          = rho_u - dt*samurai::upwind_horizontal_momentum(rho_u, p_bar, vel);
+    rho_v          = rho_v - dt*samurai::upwind_vertical_momentum(rho_v, p_bar, vel);
 
     // Apply relaxation, which will modify alpha1_bar and, consequently, for what
     // concerns next time step, rho_alpha1_bar and p_bar
@@ -286,7 +286,7 @@ int main(int argc, char* argv[]) {
     // Save the results
     if(t >= static_cast<double>(nsave + 1) * dt_save || t == Tf) {
       const std::string suffix = (nfiles != 1) ? fmt::format("_ite_{}", ++nsave) : "";
-      save(path, filename, suffix, mesh, m1, m2, m1_d, alpha1_d, rho_alpha1_bar, rho_u, rho_v, u, alpha1_bar, alpha1, p_bar);
+      save(path, filename, suffix, mesh, m1, m2, m1_d, alpha1_d, rho_alpha1_bar, rho_u, rho_v, vel, alpha1_bar, alpha1, p_bar);
     }
   }
 

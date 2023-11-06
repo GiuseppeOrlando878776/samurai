@@ -19,14 +19,14 @@ namespace samurai {
     INIT_OPERATOR(upwind_conserved_variable_op)
 
     // Compute the flux along one direction
-    template<class Flux, class Field, class EigenValue>
+    template<class Field, class Flux, class EigenValue>
     inline auto flux(const Flux& Fl, const Flux& Fr, const Field& ql, const Field& qr, const EigenValue& lambda) const {
       // Upwind (or in principle Rusanov) flux
       return xt::eval(0.5*(Fl + Fr) + 0.5*lambda*(ql - qr));
     }
 
     // 2D configurations: left flux
-    template<class Flux, class Field>
+    template<class Field, class Flux>
     inline auto left_flux(const Field& q, const Flux& vel) const {
       const auto& lambda = xt::maximum(xt::abs(vel(0, level, i - 1, j)),
                                        xt::abs(vel(0, level, i, j)));
@@ -35,7 +35,7 @@ namespace samurai {
     }
 
     // 2D configurations: right flux
-    template<class Flux, class Field>
+    template<class Field, class Flux>
     inline auto right_flux(const Field& q, const Flux& vel) const {
       const auto& lambda = xt::maximum(xt::abs(vel(0, level, i, j)),
                                        xt::abs(vel(0, level, i + 1, j)));
@@ -44,7 +44,7 @@ namespace samurai {
     }
 
     // 2D configurations: bottom flux
-    template<class Flux, class Field>
+    template<class Field, class Flux>
     inline auto down_flux(const Field& q, const Flux& vel) const  {
       const auto& lambda = xt::maximum(xt::abs(vel(1, level, i, j - 1)),
                                        xt::abs(vel(1, level, i, j)));
@@ -53,7 +53,7 @@ namespace samurai {
     }
 
     // 2D configurations: up flux
-    template<class Flux, class Field>
+    template<class Field, class Flux>
     inline auto up_flux(const Field& q, const Flux& vel) const {
       const auto& lambda = xt::maximum(xt::abs(vel(1, level, i, j)),
                                        xt::abs(vel(1, level, i, j + 1)));
@@ -80,14 +80,14 @@ namespace samurai {
     INIT_OPERATOR(upwind_horizontal_momentum_op)
 
     // Compute the flux along one direction
-    template<class Flux, class Field, class EigenValue>
+    template<class Field, class Flux, class EigenValue>
     inline auto flux(const Flux& Fl, const Flux& Fr, const Field& ql, const Field& qr, const EigenValue& lambda) const {
       // Upwind (or in principle Rusanov) flux
       return xt::eval(0.5*(Fl + Fr) + 0.5*lambda*(ql - qr));
     }
 
     // 2D configurations: left flux
-    template<class Flux, class Field>
+    template<class Field, class Flux>
     inline auto left_flux(const Field& q, const Field& pres, const Flux& vel) const {
       const auto& lambda = xt::maximum(xt::abs(vel(0, level, i - 1, j)),
                                        xt::abs(vel(0, level, i, j)));
@@ -98,7 +98,7 @@ namespace samurai {
     }
 
     // 2D configurations: right flux
-    template<class Flux, class Field>
+    template<class Field, class Flux>
     inline auto right_flux(const Field& q, const Field& pres, const Flux& vel) const {
       const auto& lambda = xt::maximum(xt::abs(vel(0, level, i, j)),
                                        xt::abs(vel(0, level, i + 1, j)));
@@ -109,7 +109,7 @@ namespace samurai {
     }
 
     // 2D configurations: bottom flux
-    template<class Flux, class Field>
+    template<class Field, class Flux>
     inline auto down_flux(const Field& q, const Field& pres, const Flux& vel) const  {
       const auto& lambda = xt::maximum(xt::abs(vel(1, level, i, j - 1)),
                                        xt::abs(vel(1, level, i, j)));
@@ -120,7 +120,7 @@ namespace samurai {
     }
 
     // 2D configurations: up flux
-    template<class Flux, class Field>
+    template<class Field, class Flux>
     inline auto up_flux(const Field& q, const Field& pres, const Flux& vel) const {
       const auto& lambda = xt::maximum(xt::abs(vel(1, level, i, j)),
                                        xt::abs(vel(1, level, i, j + 1)));
@@ -149,14 +149,14 @@ namespace samurai {
     INIT_OPERATOR(upwind_vertical_momentum_op)
 
     // Compute the flux along one direction
-    template<class Flux, class Field, class EigenValue>
+    template<class Field, class Flux, class EigenValue>
     inline auto flux(const Flux& Fl, const Flux& Fr, const Field& ql, const Field& qr, const EigenValue& lambda) const {
       // Upwind (or in principle Rusanov) flux
       return xt::eval(0.5*(Fl + Fr) + 0.5*lambda*(ql - qr));
     }
 
     // 2D configurations: left flux
-    template<class Flux, class Field>
+    template<class Field, class Flux>
     inline auto left_flux(const Field& q, const Field& pres, const Flux& vel) const {
       const auto& lambda = xt::maximum(xt::abs(vel(0, level, i - 1, j)),
                                        xt::abs(vel(0, level, i, j)));
@@ -167,7 +167,7 @@ namespace samurai {
     }
 
     // 2D configurations: right flux
-    template<class Flux, class Field>
+    template<class Field, class Flux>
     inline auto right_flux(const Field& q, const Field& pres, const Flux& vel) const {
       const auto& lambda = xt::maximum(xt::abs(vel(0, level, i, j)),
                                        xt::abs(vel(0, level, i + 1, j)));
@@ -178,7 +178,7 @@ namespace samurai {
     }
 
     // 2D configurations: bottom flux
-    template<class Flux, class Field>
+    template<class Field, class Flux>
     inline auto down_flux(const Field& q, const Field& pres, const Flux& vel) const  {
       const auto& lambda = xt::maximum(xt::abs(vel(1, level, i, j - 1)),
                                        xt::abs(vel(1, level, i, j)));
@@ -189,7 +189,7 @@ namespace samurai {
     }
 
     // 2D configurations: up flux
-    template<class Flux, class Field>
+    template<class Field, class Flux>
     inline auto up_flux(const Field& q, const Field& pres, const Flux& vel) const {
       const auto& lambda = xt::maximum(xt::abs(vel(1, level, i, j)),
                                        xt::abs(vel(1, level, i, j + 1)));
