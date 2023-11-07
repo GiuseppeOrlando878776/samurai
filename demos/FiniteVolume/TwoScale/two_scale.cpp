@@ -10,48 +10,20 @@
 #include <samurai/field.hpp>
 #include <samurai/hdf5.hpp>
 
-#include "stencil_field.hpp"
 #include "conservation_FV__nonlin.hpp"
 
 #include <filesystem>
 namespace fs = std::filesystem;
 
-static const double p0          = 1e5;
+static constexpr double p0          = 1e5;
 
-static const double rho0_phase1 = 1.0;
-static const double rho0_phase2 = 1e3;
+static constexpr double rho0_phase1 = 1.0;
+static constexpr double rho0_phase2 = 1e3;
 
-static const double c0_phase1   = 3.0;
-static const double c0_phase2   = 15.0;
+static constexpr double c0_phase1   = 3.0;
+static constexpr double c0_phase2   = 15.0;
 
-static std::size_t M1_INDEX             = 0;
-static std::size_t M2_INDEX             = 1;
-static std::size_t M1_D_INDEX           = 2;
-static std::size_t ALPHA1_D_INDEX       = 3;
-static std::size_t RHO_ALPHA1_BAR_INDEX = 4;
-
-// Create conserved variables
-//
-template<class Mesh>
-auto init_conserved_variables(Mesh& mesh) {
-  // Create the variable to fill the volume fraction values
-  auto conserved_variables = samurai::make_field<double, 5>("conserved", mesh);
-
-  using mesh_id_t = typename Mesh::mesh_id_t;
-
-  samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
-                         [&](const auto& cell)
-                         {
-                           conserved_variables[cell][M1_INDEX]             = 1.0;
-                           conserved_variables[cell][M2_INDEX]             = 2.0;
-                           conserved_variables[cell][M1_D_INDEX]           = 0.5;
-                           conserved_variables[cell][ALPHA1_D_INDEX]       = 0.1;
-                           conserved_variables[cell][RHO_ALPHA1_BAR_INDEX] = 1.75;
-                         });
-
-  return conserved_variables;
-}
-
+using namespace EquationData;
 
 // Create the velocity
 //
@@ -78,6 +50,36 @@ auto init_velocity(Mesh& mesh) {
   samurai::make_bc<samurai::Neumann>(vel, 0.0, 0.0);
 
   return vel;
+}
+
+
+// Create conserved variables
+//
+template<class Mesh, class Field>
+auto init_conserved_variables(Mesh& mesh, const Field& vel) {
+  // Create the variable to fill the volume fraction values
+  auto conserved_variables = samurai::make_field<double, 7>("conserved", mesh);
+
+  using mesh_id_t = typename Mesh::mesh_id_t;
+
+  samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
+                         [&](const auto& cell)
+                         {
+                           conserved_variables[cell][M1_INDEX]             = 1.0;
+                           conserved_variables[cell][M2_INDEX]             = 2.0;
+                           conserved_variables[cell][M1_D_INDEX]           = 0.5;
+                           conserved_variables[cell][ALPHA1_D_INDEX]       = 0.1;
+                           conserved_variables[cell][RHO_ALPHA1_BAR_INDEX] = 1.75;
+
+                           const double rho = conserved_variables[cell][M1_INDEX]
+                                            + conserved_variables[cell][M2_INDEX]
+                                            + conserved_variables[cell][M1_D_INDEX];
+
+                            conserved_variables[cell][RHO_U_INDEX] = rho*vel[cell][0];
+                            conserved_variables[cell][RHO_V_INDEX] = rho*vel[cell][1];
+                         });
+
+  return conserved_variables;
 }
 
 
@@ -161,40 +163,25 @@ int main(int argc, char* argv[]) {
   samurai::amr::Mesh<Config> mesh(box, start_level, min_level, max_level);
 
   // Create the fields
-  auto conserved_variables = init_conserved_variables(mesh);
   auto vel                 = init_velocity<samurai::amr::Mesh<Config>, dim>(mesh);
+  auto conserved_variables = init_conserved_variables(mesh, vel);
 
-  // Create the flux variable
-  auto flux = samurai::make_field<double, dim>("F", mesh);
-  samurai::make_bc<samurai::Neumann>(flux, 0.0, 0.0);
-
-  auto flux_new = samurai::make_conservation<decltype(conserved_variables), decltype(vel)>(vel);
-
-  // Create dependent unknown and other auxiliary useful fields
+  // Create auxiliary useful fields
   using mesh_id_t = typename samurai::amr::Mesh<Config>::mesh_id_t;
   auto rho = samurai::make_field<double, 1>("rho", mesh);
   samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
                          [&](const auto& cell)
                          {
-                           rho[cell] = conserved_variables[cell][M1_INDEX] + conserved_variables[cell][M2_INDEX] + conserved_variables[cell][M1_D_INDEX];
-                         });
-  auto rho_u = samurai::make_field<double, 1>("rho_u", mesh);
-  samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
-                         [&](const auto& cell)
-                         {
-                           rho_u[cell] = rho[cell]*vel[cell][0];
-                         });
-  auto rho_v = samurai::make_field<double, 1>("rho_v", mesh);
-  samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
-                         [&](const auto& cell)
-                         {
-                           rho_v[cell] = rho[cell]*vel[cell][1];
+                           rho[cell] = conserved_variables[cell][M1_INDEX]
+                                     + conserved_variables[cell][M2_INDEX]
+                                     + conserved_variables[cell][M1_D_INDEX];
                          });
   auto alpha1_bar = samurai::make_field<double, 1>("alpha1_bar", mesh);
   samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
                          [&](const auto& cell)
                          {
-                           alpha1_bar[cell] = conserved_variables[cell][RHO_ALPHA1_BAR_INDEX]/rho[cell];
+                           alpha1_bar[cell] = conserved_variables[cell][RHO_ALPHA1_BAR_INDEX]/
+                                              rho[cell];
                          });
   auto alpha2_bar = samurai::make_field<double, 1>("alpha2_bar", mesh);
   alpha2_bar      = 1.0 - alpha1_bar;
@@ -202,19 +189,23 @@ int main(int argc, char* argv[]) {
   samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
                          [&](const auto& cell)
                          {
-                           alpha1[cell] = alpha1_bar[cell]*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+                           alpha1[cell] = alpha1_bar[cell]*
+                                          (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
                          });
   auto rho1 = samurai::make_field<double, 1>("rho1", mesh);
   samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
                          [&](const auto& cell)
                          {
-                           rho1[cell] = conserved_variables[cell][M1_INDEX]/alpha1[cell];
+                           rho1[cell] = conserved_variables[cell][M1_INDEX]/
+                                        alpha1[cell];
                          });
   auto alpha2 = samurai::make_field<double, 1>("alpha2", mesh);
   samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
                          [&](const auto& cell)
                          {
-                           alpha2[cell] = 1.0 - alpha1[cell] - conserved_variables[cell][ALPHA1_D_INDEX];
+                           alpha2[cell] = 1.0
+                                        - alpha1[cell]
+                                        - conserved_variables[cell][ALPHA1_D_INDEX];
                          });
   auto rho2 = samurai::make_field<double, 1>("rho2", mesh);
   samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
@@ -226,9 +217,12 @@ int main(int argc, char* argv[]) {
   p_bar      = alpha1_bar*EOS_phase1(rho1) + alpha2_bar*EOS_phase2(rho2);
   samurai::make_bc<samurai::Neumann>(p_bar, 0.0);
 
+  // Create the flux variable
+  auto flux = samurai::make_conservation<decltype(conserved_variables)>(vel, p_bar);
+
   // Save the initial condition
   const std::string suffix_init = (nfiles != 1) ? "_ite_0" : "";
-  save(path, filename, suffix_init, mesh, conserved_variables, rho_u, rho_v, vel, alpha1_bar, alpha1, p_bar);
+  save(path, filename, suffix_init, mesh, conserved_variables, vel, alpha1_bar, alpha1, p_bar);
 
   // Start the loop
   std::size_t nsave = 0;
@@ -245,54 +239,34 @@ int main(int argc, char* argv[]) {
     // TODO: Compute speed of sound and proper eigenvalue for Rusanov flux
 
     // Apply the numerical scheme without relaxation
-    samurai::update_ghost(conserved_variables);
-    samurai::update_bc(vel);
-    conserved_variables = conserved_variables - dt*flux_new(conserved_variables);
-
-    samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
-                           [&](const auto& cell)
-                           {
-                             flux[cell][0] = rho_u[cell]*vel[cell][0] + p_bar[cell];
-                             flux[cell][1] = rho_u[cell]*vel[cell][1];
-                           });
-    samurai::update_ghost(rho_u, p_bar, flux);
-    rho_u = rho_u - dt*samurai::upwind_conserved_variable(rho_u, flux, vel);
-
-    samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
-                           [&](const auto& cell)
-                           {
-                             flux[cell][0] = rho_v[cell]*vel[cell][0];
-                             flux[cell][1] = rho_v[cell]*vel[cell][1] + p_bar[cell];
-                           });
-    samurai::update_ghost(rho_v, p_bar, flux);
-    rho_v = rho_v - dt*samurai::upwind_conserved_variable(rho_v, flux, vel);
+    samurai::update_ghost(conserved_variables, vel);
+    samurai::update_bc(vel, p_bar);
+    conserved_variables = conserved_variables - dt*flux(conserved_variables);
 
     // Update auxiliary useful fields which are not modified by relaxation
     samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
                            [&](const auto& cell)
                            {
-                             rho[cell] = conserved_variables[cell][M1_INDEX] + conserved_variables[cell][M2_INDEX] + conserved_variables[cell][M1_D_INDEX];
+                             rho[cell] = conserved_variables[cell][M1_INDEX]
+                                       + conserved_variables[cell][M2_INDEX]
+                                       + conserved_variables[cell][M1_D_INDEX];
                            });
-    /*samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
-                           [&](const auto& cell)
-                           {
-                             vel[cell][0] = rho_u[cell]/rho[cell];
-                             vel[cell][1] = rho_v[cell]/rho[cell];
-                           });*/
-
+    
     // Apply relaxation, which will modify alpha1_bar and, consequently, for what
     // concerns next time step, rho_alpha1_bar and p_bar
     auto alpha1_bar_rho1 = samurai::make_field<double, 1>("alpha1_bar_rho1", mesh);
     samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
                            [&](const auto& cell)
                            {
-                             alpha1_bar_rho1[cell] = conserved_variables[cell][M1_INDEX]/(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+                             alpha1_bar_rho1[cell] = conserved_variables[cell][M1_INDEX]/
+                                                     (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
                            });
     auto alpha2_bar_rho2 = samurai::make_field<double, 1>("alpha2_bar_rho2", mesh);
     samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
                            [&](const auto& cell)
                            {
-                             alpha2_bar_rho2[cell] = conserved_variables[cell][M2_INDEX]/(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+                             alpha2_bar_rho2[cell] = conserved_variables[cell][M2_INDEX]/
+                                                     (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
                            });
 
     const auto q      = rho0_phase2*c0_phase2*c0_phase2 - rho0_phase1*c0_phase1*c0_phase1;
@@ -316,29 +290,34 @@ int main(int argc, char* argv[]) {
     samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
                            [&](const auto& cell)
                            {
-                             alpha1[cell] = alpha1_bar[cell]*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+                             alpha1[cell] = alpha1_bar[cell]*
+                                            (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
                            });
     samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
                            [&](const auto& cell)
                            {
-                             rho1[cell] = conserved_variables[cell][M1_INDEX]/alpha1[cell];
+                             rho1[cell] = conserved_variables[cell][M1_INDEX]/
+                                          alpha1[cell];
                            });
     samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
                            [&](const auto& cell)
                            {
-                             alpha2[cell] = 1.0 - alpha1[cell] - conserved_variables[cell][ALPHA1_D_INDEX];
+                             alpha2[cell] = 1.0
+                                          - alpha1[cell]
+                                          - conserved_variables[cell][ALPHA1_D_INDEX];
                            });
     samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
                            [&](const auto& cell)
                            {
-                             rho2[cell] = conserved_variables[cell][M2_INDEX]/alpha2[cell];
+                             rho2[cell] = conserved_variables[cell][M2_INDEX]/
+                                          alpha2[cell];
                            });
     p_bar = alpha1_bar*EOS_phase1(rho1) + alpha2_bar*EOS_phase2(rho2);
 
     // Save the results
     if(t >= static_cast<double>(nsave + 1) * dt_save || t == Tf) {
       const std::string suffix = (nfiles != 1) ? fmt::format("_ite_{}", ++nsave) : "";
-      save(path, filename, suffix, mesh, conserved_variables, rho_u, rho_v, vel, alpha1_bar, alpha1, p_bar);
+      save(path, filename, suffix, mesh, conserved_variables, vel, alpha1_bar, alpha1, p_bar);
     }
   }
 

@@ -1,13 +1,25 @@
 #pragma once
 #include <samurai/schemes/fv.hpp>
 
+namespace EquationData {
+  static constexpr std::size_t M1_INDEX             = 0;
+  static constexpr std::size_t M2_INDEX             = 1;
+  static constexpr std::size_t M1_D_INDEX           = 2;
+  static constexpr std::size_t ALPHA1_D_INDEX       = 3;
+  static constexpr std::size_t RHO_ALPHA1_BAR_INDEX = 4;
+  static constexpr std::size_t RHO_U_INDEX          = 5;
+  static constexpr std::size_t RHO_V_INDEX          = 6;
+}
+
 namespace samurai {
+  using namespace EquationData;
+
   /**
    * Implementation of discretization of a conservation law with upwind/Rusanov flux
    * along the horizontal direction
    */
-  template<class Field, class Aux>
-  auto make_conservation(const Aux& vel) {
+  template<class Field, class Aux, class Aux_b>
+  auto make_conservation(const Aux& vel, const Aux_b& pres) {
     static constexpr std::size_t dim = Field::dim;
     static_assert(Field::dim == Aux::size, "No mathcing spactial dimension in make_conservation");
 
@@ -25,9 +37,26 @@ namespace samurai {
       {
         static constexpr int d = decltype(integral_constant_d)::value;
 
-        auto f = [&](const auto& q, const auto& velocity) -> FluxValue<cfg>
+        auto f = [&](const auto& q, const auto& velocity, const auto& pressure)
         {
-          return velocity(d)*q;
+          FluxValue<cfg> res = q;
+
+          res(M1_INDEX) *= velocity(d);
+          res(M2_INDEX) *= velocity(d);
+          res(M1_D_INDEX) *= velocity(d);
+          res(ALPHA1_D_INDEX) *= velocity(d);
+          res(RHO_ALPHA1_BAR_INDEX) *= velocity(d);
+          res(RHO_U_INDEX) *= velocity(d);
+          res(RHO_V_INDEX) *= velocity(d);
+
+          if constexpr(d == 0) {
+            res(RHO_U_INDEX) += pressure;
+          }
+          if constexpr(d == 1) {
+            res(RHO_V_INDEX) += pressure;
+          }
+
+          return res;
         };
 
         Rusanov_f[d].flux_function = [&](auto& cells, Field& field)
@@ -38,7 +67,7 @@ namespace samurai {
                                        const auto lambda = std::max(std::abs(vel[left](d)),
                                                                     std::abs(vel[right](d)));
 
-                                       return 0.5*(f(field[left], vel[left]) + f(field[right], vel[right])) +
+                                       return 0.5*(f(field[left], vel[left], pres[left]) + f(field[right], vel[right], pres[right])) +
                                               0.5*lambda*(field[left] - field[right]);
                                      };
       }
