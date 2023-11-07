@@ -119,6 +119,42 @@ void save(const fs::path& path, const std::string& filename, const std::string& 
 }
 
 
+// Auxiliary routine to compute maximum velocity along horizontal direction
+//
+template<class Mesh, class Field>
+double get_max_velocity_horizontal(const Mesh& mesh, const Field& vel) {
+  double res = 0.0;
+
+  samurai::for_each_cell(mesh,
+                         [&](const auto& cell)
+                         {
+                           if(std::abs(vel[cell][0]) > res) {
+                             res = std::abs(vel[cell][0]);
+                           }
+                         });
+
+  return res;
+}
+
+
+// Auxiliary routine to compute maximum velocity along vertical direction
+//
+template<class Mesh, class Field>
+double get_max_velocity_vertical(const Mesh& mesh, const Field& vel) {
+  double res = 0.0;
+
+  samurai::for_each_cell(mesh,
+                         [&](const auto& cell)
+                         {
+                           if(std::abs(vel[cell][1]) > res) {
+                             res = std::abs(vel[cell][1]);
+                           }
+                         });
+
+  return res;
+}
+
+
 // Main function to run the program
 //
 int main(int argc, char* argv[]) {
@@ -133,9 +169,8 @@ int main(int argc, char* argv[]) {
   std::size_t max_level   = 8;
 
   // Simulation parameters
-  double Tf  = 3.14;
-  double cfl = 5.0/8.0;
-  double dt  = cfl/(1 << max_level);
+  double Tf  = 1.0;
+  double cfl = 1.0/8.0;
   double t   = 0.0;
 
   // Output parameters
@@ -165,6 +200,10 @@ int main(int argc, char* argv[]) {
   // Create the fields
   auto vel                 = init_velocity<samurai::amr::Mesh<Config>, dim>(mesh);
   auto conserved_variables = init_conserved_variables(mesh, vel);
+
+  // Set initial time-step
+  double dx = samurai::cell_length(start_level);
+  double dt = cfl*dx/(get_max_velocity_horizontal(mesh, vel) + get_max_velocity_vertical(mesh, vel));
 
   // Create auxiliary useful fields
   using mesh_id_t = typename samurai::amr::Mesh<Config>::mesh_id_t;
@@ -239,7 +278,7 @@ int main(int argc, char* argv[]) {
     // TODO: Compute speed of sound and proper eigenvalue for Rusanov flux
 
     // Apply the numerical scheme without relaxation
-    samurai::update_ghost(conserved_variables, vel);
+    samurai::update_ghost_mr(conserved_variables, vel, p_bar);
     samurai::update_bc(vel, p_bar);
     conserved_variables = conserved_variables - dt*flux(conserved_variables);
 
@@ -251,7 +290,19 @@ int main(int argc, char* argv[]) {
                                        + conserved_variables[cell][M2_INDEX]
                                        + conserved_variables[cell][M1_D_INDEX];
                            });
-    
+    samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
+                           [&](const auto& cell)
+                           {
+                             vel[cell][0] = conserved_variables[cell][RHO_U_INDEX]/
+                                            rho[cell];
+                             vel[cell][1] = conserved_variables[cell][RHO_V_INDEX]/
+                                            rho[cell];
+                           });
+
+    // Compute updated time step
+    dx = samurai::cell_length(max_level);
+    dt = cfl*dx/(get_max_velocity_horizontal(mesh, vel) + get_max_velocity_vertical(mesh, vel));
+
     // Apply relaxation, which will modify alpha1_bar and, consequently, for what
     // concerns next time step, rho_alpha1_bar and p_bar
     auto alpha1_bar_rho1 = samurai::make_field<double, 1>("alpha1_bar_rho1", mesh);
