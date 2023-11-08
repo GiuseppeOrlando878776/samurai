@@ -11,6 +11,7 @@ namespace EquationData {
   static constexpr std::size_t RHO_V_INDEX          = 6;
 }
 
+
 namespace samurai {
   using namespace EquationData;
 
@@ -18,10 +19,10 @@ namespace samurai {
    * Implementation of discretization of a conservation law with upwind/Rusanov flux
    * along the horizontal direction
    */
-  template<class Field, class Aux, class Aux_b>
-  auto make_conservation(const Aux& vel, const Aux_b& pres, const Aux_b& c) {
+  template<class Field, class Field_Vel, class Field_Scalar>
+  auto make_two_scale(const Field_Vel& vel, const Field_Scalar& pres, const Field_Scalar& c) {
     static constexpr std::size_t dim = Field::dim;
-    static_assert(Field::dim == Aux::size, "No mathcing spactial dimension in make_conservation");
+    static_assert(Field::dim == Field_Vel::size, "No mathcing spactial dimension in make_two_scale");
 
     static constexpr std::size_t field_size        = Field::size;
     static constexpr std::size_t output_field_size = field_size;
@@ -31,8 +32,9 @@ namespace samurai {
 
     FluxDefinition<cfg> Rusanov_f;
 
+    // Perform the loop over each dimension to compute the flux contribution
     static_for<0, dim>::apply(
-      // For each variable
+      // First, we need a function to compute the "continuous" flux
       [&](auto integral_constant_d)
       {
         static constexpr int d = decltype(integral_constant_d)::value;
@@ -59,6 +61,7 @@ namespace samurai {
           return res;
         };
 
+        // Compute now the "discrete" flux function, in this case a Rusanov flux
         Rusanov_f[d].flux_function = [&](auto& cells, Field& field)
                                      {
                                        const auto& left  = cells[0];
