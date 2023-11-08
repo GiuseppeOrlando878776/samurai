@@ -155,6 +155,24 @@ double get_max_velocity_vertical(const Mesh& mesh, const Field& vel) {
 }
 
 
+// Auxiliary routine to compute maximum celerity
+//
+template<class Mesh, class Field>
+double get_max_celerity(const Mesh& mesh, const Field& c) {
+  double res = 0.0;
+
+  samurai::for_each_cell(mesh,
+                         [&](const auto& cell)
+                         {
+                           if(c[cell] > res) {
+                             res = c[cell];
+                           }
+                         });
+
+  return res;
+}
+
+
 // Main function to run the program
 //
 int main(int argc, char* argv[]) {
@@ -169,8 +187,8 @@ int main(int argc, char* argv[]) {
   std::size_t max_level   = 8;
 
   // Simulation parameters
-  double Tf  = 1.0;
-  double cfl = 1.0/8.0;
+  double Tf  = 0.2;
+  double cfl = 0.25;
   double t   = 0.0;
 
   // Output parameters
@@ -255,13 +273,23 @@ int main(int argc, char* argv[]) {
   auto p_bar = samurai::make_field<double, 1>("p_bar", mesh);
   p_bar      = alpha1_bar*EOS_phase1(rho1) + alpha2_bar*EOS_phase2(rho2);
   samurai::make_bc<samurai::Neumann>(p_bar, 0.0);
+  auto c     = samurai::make_field<double, 1>("c", mesh);
+  samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
+                         [&](const auto& cell)
+                         {
+                           const double c_squared = conserved_variables[cell][M1_INDEX]*c0_phase1
+                                                  + conserved_variables[cell][M2_INDEX]*c0_phase2;
+
+                           c[cell] = std::sqrt(c_squared/rho[cell])/
+                                     (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+                         });
 
   // Create the flux variable
-  auto flux = samurai::make_conservation<decltype(conserved_variables)>(vel, p_bar);
+  auto flux = samurai::make_conservation<decltype(conserved_variables)>(vel, p_bar, c);
 
   // Save the initial condition
   const std::string suffix_init = (nfiles != 1) ? "_ite_0" : "";
-  save(path, filename, suffix_init, mesh, conserved_variables, vel, alpha1_bar, alpha1, p_bar);
+  save(path, filename, suffix_init, mesh, conserved_variables, vel, alpha1_bar, alpha1, p_bar, c);
 
   // Start the loop
   std::size_t nsave = 0;
@@ -298,10 +326,19 @@ int main(int argc, char* argv[]) {
                              vel[cell][1] = conserved_variables[cell][RHO_V_INDEX]/
                                             rho[cell];
                            });
+    samurai::for_each_cell(mesh[mesh_id_t::cells_and_ghosts],
+                           [&](const auto& cell)
+                           {
+                             const double c_squared = conserved_variables[cell][M1_INDEX]*c0_phase1
+                                                    + conserved_variables[cell][M2_INDEX]*c0_phase2;
+
+                             c[cell] = std::sqrt(c_squared/rho[cell])/
+                                       (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+                           });
 
     // Compute updated time step
     dx = samurai::cell_length(max_level);
-    dt = cfl*dx/(get_max_velocity_horizontal(mesh, vel) + get_max_velocity_vertical(mesh, vel));
+    dt = std::min(dt, cfl*dx/(get_max_velocity_horizontal(mesh, vel) + get_max_velocity_vertical(mesh, vel) + get_max_celerity(mesh, c)));
 
     // Apply relaxation, which will modify alpha1_bar and, consequently, for what
     // concerns next time step, rho_alpha1_bar and p_bar
@@ -368,7 +405,7 @@ int main(int argc, char* argv[]) {
     // Save the results
     if(t >= static_cast<double>(nsave + 1) * dt_save || t == Tf) {
       const std::string suffix = (nfiles != 1) ? fmt::format("_ite_{}", ++nsave) : "";
-      save(path, filename, suffix, mesh, conserved_variables, vel, alpha1_bar, alpha1, p_bar);
+      save(path, filename, suffix, mesh, conserved_variables, vel, alpha1_bar, alpha1, p_bar, c);
     }
   }
 

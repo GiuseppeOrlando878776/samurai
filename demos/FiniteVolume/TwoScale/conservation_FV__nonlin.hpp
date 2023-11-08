@@ -19,7 +19,7 @@ namespace samurai {
    * along the horizontal direction
    */
   template<class Field, class Aux, class Aux_b>
-  auto make_conservation(const Aux& vel, const Aux_b& pres) {
+  auto make_conservation(const Aux& vel, const Aux_b& pres, const Aux_b& c) {
     static constexpr std::size_t dim = Field::dim;
     static_assert(Field::dim == Aux::size, "No mathcing spactial dimension in make_conservation");
 
@@ -64,8 +64,8 @@ namespace samurai {
                                        const auto& left  = cells[0];
                                        const auto& right = cells[1];
 
-                                       const auto lambda = std::max(std::abs(vel[left](d)),
-                                                                    std::abs(vel[right](d)));
+                                       const auto lambda = std::max(std::abs(vel[left](d)) + c[left],
+                                                                    std::abs(vel[right](d)) + c[right]);
 
                                        return 0.5*(f(field[left], vel[left], pres[left]) + f(field[right], vel[right], pres[right])) +
                                               0.5*lambda*(field[left] - field[right]);
