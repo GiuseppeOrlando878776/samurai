@@ -10,13 +10,17 @@
 #include <samurai/field.hpp>
 #include <samurai/hdf5.hpp>
 
+#include "barotropic_eos.hpp"
+
 #include "two_scale_FV.hpp"
 
 #include <filesystem>
 namespace fs = std::filesystem;
 
+// Specify the use of this namespace where we just store the indices
+using namespace EquationData;
+
 // Declare some parameters related to EOS.
-// TODO: create a class for EOS
 static constexpr double p0_phase1   = 1e5;
 static constexpr double p0_phase2   = 1e5;
 
@@ -25,9 +29,6 @@ static constexpr double rho0_phase2 = 1e3;
 
 static constexpr double c0_phase1   = 3.0;
 static constexpr double c0_phase2   = 15.0;
-
-// Specify the use of this namespace where we just store the indices
-using namespace EquationData;
 
 // Create conserved variables
 //
@@ -124,22 +125,6 @@ auto init_conserved_variables(Mesh& mesh) {
 }
 
 
-// Implement the EOS for phase 1
-//
-template<class Field>
-auto EOS_phase1(const Field& rho1) {
-  return p0_phase1 + c0_phase1*c0_phase1*(rho1 - rho0_phase1);
-}
-
-
-// Implement the EOS for phase 2
-//
-template<class Field>
-auto EOS_phase2(const Field& rho2) {
-  return p0_phase2 + c0_phase2*c0_phase2*(rho2 - rho0_phase2);
-}
-
-
 // Create an auxiliary routine to impose left Dirichlet boundary condition
 template<std::size_t dim, class Field, class Field_Vel, class Field_Scalar>
 void impose_left_dirichet_BC(Field& q, Field_Vel& velocity, Field_Scalar& pressure, Field_Scalar& speed_of_sound) {
@@ -172,7 +157,9 @@ void impose_left_dirichet_BC(Field& q, Field_Vel& velocity, Field_Scalar& pressu
   samurai::make_bc<samurai::Dirichlet>(velocity, u, v)->on(left);
 
   // Impose BC for the pressure
-  const double p_bar = alpha1_bar*EOS_phase1(rho1) + (1.0 - alpha1_bar)*EOS_phase2(rho2);
+  const auto EOS_phase1 = LinearizedBarotropicEOS(p0_phase1, rho0_phase1, c0_phase1);
+  const auto EOS_phase2 = LinearizedBarotropicEOS(p0_phase2, rho0_phase2, c0_phase2);
+  const double p_bar    = alpha1_bar*EOS_phase1.pres_value(rho1) + (1.0 - alpha1_bar)*EOS_phase2.pres_value(rho2);
 
   samurai::make_bc<samurai::Dirichlet>(pressure, p_bar)->on(left);
 
@@ -216,7 +203,9 @@ void impose_right_dirichet_BC(Field& q, Field_Vel& velocity, Field_Scalar& press
   samurai::make_bc<samurai::Dirichlet>(velocity, u, v)->on(right);
 
   // Impose BC for the pressure
-  const double p_bar = alpha1_bar*EOS_phase1(rho1) + (1.0 - alpha1_bar)*EOS_phase2(rho2);
+  const auto EOS_phase1 = LinearizedBarotropicEOS(p0_phase1, rho0_phase1, c0_phase1);
+  const auto EOS_phase2 = LinearizedBarotropicEOS(p0_phase2, rho0_phase2, c0_phase2);
+  const double p_bar    = alpha1_bar*EOS_phase1.pres_value(rho1) + (1.0 - alpha1_bar)*EOS_phase2.pres_value(rho2);
 
   samurai::make_bc<samurai::Dirichlet>(pressure, p_bar)->on(right);
 
@@ -326,6 +315,9 @@ int main(int argc, char* argv[]) {
   auto p_bar      = samurai::make_field<double, 1>("p_bar", mesh);
   auto c          = samurai::make_field<double, 1>("c", mesh);
 
+  const auto EOS_phase1 = LinearizedBarotropicEOS(p0_phase1, rho0_phase1, c0_phase1);
+  const auto EOS_phase2 = LinearizedBarotropicEOS(p0_phase2, rho0_phase2, c0_phase2);
+
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
                          {
@@ -355,8 +347,8 @@ int main(int argc, char* argv[]) {
 
                            rho2[cell] = conserved_variables[cell][M2_INDEX]/alpha2[cell];
 
-                           p_bar[cell] = alpha1_bar[cell]*EOS_phase1(rho1[cell])
-                                       + alpha2_bar[cell]*EOS_phase2(rho2[cell]);
+                           p_bar[cell] = alpha1_bar[cell]*EOS_phase1.pres_value(rho1[cell])
+                                       + alpha2_bar[cell]*EOS_phase2.pres_value(rho2[cell]);
 
                            const double c_squared = conserved_variables[cell][M1_INDEX]*c0_phase1*c0_phase1
                                                   + conserved_variables[cell][M2_INDEX]*c0_phase2*c0_phase2;
@@ -477,8 +469,8 @@ int main(int argc, char* argv[]) {
 
                              rho2[cell] = conserved_variables[cell][M2_INDEX]/alpha2[cell];
 
-                             p_bar[cell] = alpha1_bar[cell]*EOS_phase1(rho1[cell])
-                                         + alpha2_bar[cell]*EOS_phase2(rho2[cell]);
+                             p_bar[cell] = alpha1_bar[cell]*EOS_phase1.pres_value(rho1[cell])
+                                         + alpha2_bar[cell]*EOS_phase2.pres_value(rho2[cell]);
                            });
 
     // Save the results
