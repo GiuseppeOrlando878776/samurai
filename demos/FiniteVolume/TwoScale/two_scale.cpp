@@ -346,83 +346,56 @@ int main(int argc, char* argv[]) {
   samurai::MRMesh<Config> mesh(box, min_level, max_level, {false, true});
 
   // Create the initial fields and the auxliary field for next step
-  auto conserved_variables = init_conserved_variables(mesh);
+  auto conserved_variables     = init_conserved_variables(mesh);
 
   auto conserved_variables_np1 = samurai::make_field<double, 7>("conserved_np1", mesh);
 
   // Create auxiliary useful fields
-  auto rho = samurai::make_field<double, 1>("rho", mesh);
+  auto rho        = samurai::make_field<double, 1>("rho", mesh);
+  auto vel        = samurai::make_field<double, dim>("vel", mesh);
+  auto alpha1_bar = samurai::make_field<double, 1>("alpha1_bar", mesh);
+  auto alpha2_bar = samurai::make_field<double, 1>("alpha2_bar", mesh);
+  auto alpha1     = samurai::make_field<double, 1>("alpha1", mesh);
+  auto rho1       = samurai::make_field<double, 1>("rho1", mesh);
+  auto alpha2     = samurai::make_field<double, 1>("alpha2", mesh);
+  auto rho2       = samurai::make_field<double, 1>("rho2", mesh);
+  auto p_bar      = samurai::make_field<double, 1>("p_bar", mesh);
+  auto c          = samurai::make_field<double, 1>("c", mesh);
+
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
                          {
                            rho[cell] = conserved_variables[cell][M1_INDEX]
                                      + conserved_variables[cell][M2_INDEX]
                                      + conserved_variables[cell][M1_D_INDEX];
-                         });
 
-  auto vel = samurai::make_field<double, dim>("vel", mesh);
-  samurai::for_each_cell(mesh,
-                         [&](const auto& cell)
-                         {
                            vel[cell][0] = conserved_variables[cell][RHO_U_INDEX]/
                                           rho[cell];
                            vel[cell][1] = conserved_variables[cell][RHO_V_INDEX]/
                                           rho[cell];
-                         });
 
-  auto alpha1_bar = samurai::make_field<double, 1>("alpha1_bar", mesh);
-  samurai::for_each_cell(mesh,
-                         [&](const auto& cell)
-                         {
                            alpha1_bar[cell] = conserved_variables[cell][RHO_ALPHA1_BAR_INDEX]/
                                               rho[cell];
-                         });
 
-  auto alpha2_bar = samurai::make_field<double, 1>("alpha2_bar", mesh);
-  alpha2_bar      = 1.0 - alpha1_bar;
+                           alpha2_bar[cell] = 1.0 - alpha1_bar[cell];
 
-  auto alpha1 = samurai::make_field<double, 1>("alpha1", mesh);
-  samurai::for_each_cell(mesh,
-                         [&](const auto& cell)
-                         {
                            alpha1[cell] = alpha1_bar[cell]*
                                           (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
-                         });
 
-  auto rho1 = samurai::make_field<double, 1>("rho1", mesh);
-  samurai::for_each_cell(mesh,
-                         [&](const auto& cell)
-                         {
                            rho1[cell] = conserved_variables[cell][M1_INDEX]/
                                         alpha1[cell];
-                         });
 
-  auto alpha2 = samurai::make_field<double, 1>("alpha2", mesh);
-  samurai::for_each_cell(mesh,
-                         [&](const auto& cell)
-                         {
                            alpha2[cell] = 1.0
                                         - alpha1[cell]
                                         - conserved_variables[cell][ALPHA1_D_INDEX];
-                         });
 
-  auto rho2 = samurai::make_field<double, 1>("rho2", mesh);
-  samurai::for_each_cell(mesh,
-                         [&](const auto& cell)
-                         {
                            rho2[cell] = conserved_variables[cell][M2_INDEX]/alpha2[cell];
-                         });
 
-  auto p_bar = samurai::make_field<double, 1>("p_bar", mesh);
-  p_bar      = alpha1_bar*EOS_phase1(rho1) + alpha2_bar*EOS_phase2(rho2);
+                           p_bar[cell] = alpha1_bar[cell]*EOS_phase1(rho1[cell])
+                                       + alpha2_bar[cell]*EOS_phase2(rho2[cell]);
 
-  auto c = samurai::make_field<double, 1>("c", mesh);
-  samurai::for_each_cell(mesh,
-                         [&](const auto& cell)
-                         {
                            const double c_squared = conserved_variables[cell][M1_INDEX]*c0_phase1*c0_phase1
                                                   + conserved_variables[cell][M2_INDEX]*c0_phase2*c0_phase2;
-
                            c[cell] = std::sqrt(c_squared/rho[cell])/
                                      (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
                          });
@@ -469,25 +442,16 @@ int main(int argc, char* argv[]) {
                              rho[cell] = conserved_variables[cell][M1_INDEX]
                                        + conserved_variables[cell][M2_INDEX]
                                        + conserved_variables[cell][M1_D_INDEX];
-                           });
 
-    samurai::for_each_cell(mesh,
-                           [&](const auto& cell)
-                           {
-                             vel[cell][0] = conserved_variables[cell][RHO_U_INDEX]/
-                                            rho[cell];
-                             vel[cell][1] = conserved_variables[cell][RHO_V_INDEX]/
-                                            rho[cell];
-                           });
+                              vel[cell][0] = conserved_variables[cell][RHO_U_INDEX]/
+                                             rho[cell];
+                              vel[cell][1] = conserved_variables[cell][RHO_V_INDEX]/
+                                             rho[cell];
 
-    samurai::for_each_cell(mesh,
-                           [&](const auto& cell)
-                           {
-                             const double c_squared = conserved_variables[cell][M1_INDEX]*c0_phase1
-                                                    + conserved_variables[cell][M2_INDEX]*c0_phase2;
-
-                             c[cell] = std::sqrt(c_squared/rho[cell])/
-                                       (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+                              const double c_squared = conserved_variables[cell][M1_INDEX]*c0_phase1
+                                                     + conserved_variables[cell][M2_INDEX]*c0_phase2;
+                              c[cell] = std::sqrt(c_squared/rho[cell])/
+                                        (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
                            });
 
     // Compute updated time step
@@ -498,17 +462,13 @@ int main(int argc, char* argv[]) {
     // concerns next time step, rho_alpha1_bar and p_bar
     if(apply_relaxation) {
       auto alpha1_bar_rho1 = samurai::make_field<double, 1>("alpha1_bar_rho1", mesh);
+      auto alpha2_bar_rho2 = samurai::make_field<double, 1>("alpha2_bar_rho2", mesh);
       samurai::for_each_cell(mesh,
                              [&](const auto& cell)
                              {
                                alpha1_bar_rho1[cell] = conserved_variables[cell][M1_INDEX]/
                                                        (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
-                             });
 
-      auto alpha2_bar_rho2 = samurai::make_field<double, 1>("alpha2_bar_rho2", mesh);
-      samurai::for_each_cell(mesh,
-                             [&](const auto& cell)
-                             {
                                alpha2_bar_rho2[cell] = conserved_variables[cell][M2_INDEX]/
                                                        (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
                              });
@@ -538,49 +498,23 @@ int main(int argc, char* argv[]) {
                            [&](const auto& cell)
                            {
                              conserved_variables[cell][RHO_ALPHA1_BAR_INDEX] = alpha1_bar[cell]*rho[cell];
-                           });
 
-    alpha2_bar = 1.0 - alpha1_bar;
+                             alpha2_bar[cell] = 1.0 - alpha1_bar[cell];
 
-    samurai::for_each_cell(mesh,
-                           [&](const auto& cell)
-                           {
                              alpha1[cell] = alpha1_bar[cell]*
                                             (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
-                           });
 
-    samurai::for_each_cell(mesh,
-                           [&](const auto& cell)
-                           {
                              rho1[cell] = conserved_variables[cell][M1_INDEX]/
                                           alpha1[cell];
-                           });
 
-    samurai::for_each_cell(mesh,
-                           [&](const auto& cell)
-                           {
                              alpha2[cell] = 1.0
                                           - alpha1[cell]
                                           - conserved_variables[cell][ALPHA1_D_INDEX];
-                           });
 
-    samurai::for_each_cell(mesh,
-                           [&](const auto& cell)
-                           {
-                             rho2[cell] = conserved_variables[cell][M2_INDEX]/
-                                          alpha2[cell];
-                           });
+                             rho2[cell] = conserved_variables[cell][M2_INDEX]/alpha2[cell];
 
-    p_bar = alpha1_bar*EOS_phase1(rho1) + alpha2_bar*EOS_phase2(rho2);
-
-    samurai::for_each_cell(mesh,
-                           [&](const auto& cell)
-                           {
-                             const double c_squared = conserved_variables[cell][M1_INDEX]*c0_phase1*c0_phase1
-                                                    + conserved_variables[cell][M2_INDEX]*c0_phase2*c0_phase2;
-
-                             c[cell] = std::sqrt(c_squared/rho[cell])/
-                                       (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+                             p_bar[cell] = alpha1_bar[cell]*EOS_phase1(rho1[cell])
+                                         + alpha2_bar[cell]*EOS_phase2(rho2[cell]);
                            });
 
     // Save the results
