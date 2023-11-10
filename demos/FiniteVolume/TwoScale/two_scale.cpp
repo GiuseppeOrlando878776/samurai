@@ -248,53 +248,17 @@ void save(const fs::path& path, const std::string& filename, const std::string& 
 }
 
 
-// Auxiliary routine to compute maximum velocity along horizontal direction
+// Auxiliary routine to compute maximum eigenvalue estimate
 //
-template<class Mesh, class Field>
-double get_max_velocity_horizontal(const Mesh& mesh, const Field& vel) {
+template<class Mesh, class Field_Vel, class Field_Scalar>
+double get_max_sigma(const Mesh& mesh, const Field_Vel& vel, const Field_Scalar& c) {
   double res = 0.0;
 
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
                          {
-                           if(std::abs(vel[cell][0]) > res) {
-                             res = std::abs(vel[cell][0]);
-                           }
-                         });
-
-  return res;
-}
-
-
-// Auxiliary routine to compute maximum velocity along vertical direction
-//
-template<class Mesh, class Field>
-double get_max_velocity_vertical(const Mesh& mesh, const Field& vel) {
-  double res = 0.0;
-
-  samurai::for_each_cell(mesh,
-                         [&](const auto& cell)
-                         {
-                           if(std::abs(vel[cell][1]) > res) {
-                             res = std::abs(vel[cell][1]);
-                           }
-                         });
-
-  return res;
-}
-
-
-// Auxiliary routine to compute maximum celerity
-//
-template<class Mesh, class Field>
-double get_max_celerity(const Mesh& mesh, const Field& c) {
-  double res = 0.0;
-
-  samurai::for_each_cell(mesh,
-                         [&](const auto& cell)
-                         {
-                           if(c[cell] > res) {
-                             res = c[cell];
+                           if((std::abs(vel[cell][0]) + std::abs(vel[cell][1]) + c[cell]) > res) {
+                             res = std::abs(vel[cell][0]) + std::abs(vel[cell][1]) + c[cell];
                            }
                          });
 
@@ -413,7 +377,7 @@ int main(int argc, char* argv[]) {
 
   // Set initial time step
   double dx = samurai::cell_length(min_level);
-  double dt = cfl*dx/(get_max_velocity_horizontal(mesh, vel) + get_max_velocity_vertical(mesh, vel) + get_max_celerity(mesh, c));
+  double dt = cfl*dx/get_max_sigma(mesh, vel ,c);
 
   // Start the loop
   std::size_t nsave = 0;
@@ -448,15 +412,15 @@ int main(int argc, char* argv[]) {
                               vel[cell][1] = conserved_variables[cell][RHO_V_INDEX]/
                                              rho[cell];
 
-                              const double c_squared = conserved_variables[cell][M1_INDEX]*c0_phase1
-                                                     + conserved_variables[cell][M2_INDEX]*c0_phase2;
+                              const double c_squared = conserved_variables[cell][M1_INDEX]*c0_phase1*c0_phase1
+                                                     + conserved_variables[cell][M2_INDEX]*c0_phase2*c0_phase2;
                               c[cell] = std::sqrt(c_squared/rho[cell])/
                                         (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
                            });
 
     // Compute updated time step
     dx = samurai::cell_length(max_level);
-    dt = std::min(dt, cfl*dx/(get_max_velocity_horizontal(mesh, vel) + get_max_velocity_vertical(mesh, vel) + get_max_celerity(mesh, c)));
+    dt = std::min(dt, cfl*dx/get_max_sigma(mesh, vel ,c));
 
     // Apply relaxation if desired, which will modify alpha1_bar and, consequently, for what
     // concerns next time step, rho_alpha1_bar and p_bar
