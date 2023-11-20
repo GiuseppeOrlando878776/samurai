@@ -17,6 +17,9 @@
 #include <filesystem>
 namespace fs = std::filesystem;
 
+#include <samurai/algorithm/graduation.hpp>
+#include <samurai/mr/adapt.hpp>
+
 // Specify the use of this namespace where we just store the indices
 using namespace EquationData;
 
@@ -255,6 +258,20 @@ double get_max_sigma(const Mesh& mesh, const Field_Vel& vel, const Field_Scalar&
 }
 
 
+// Auxiliary routine to check whether a Field contains NaN or not
+//
+template<class Field>
+bool is_field_nan(const Field& f) {
+  bool is_nan = false;
+  samurai::for_each_cell(f.mesh(),
+                         [&](const auto& cell)
+                         {
+                           is_nan = is_nan || std::isnan(f[cell]);
+                         });
+  return is_nan;
+}
+
+
 // Main function to run the program
 //
 int main(int argc, char* argv[]) {
@@ -264,11 +281,11 @@ int main(int argc, char* argv[]) {
   // Mesh parameters
   xt::xtensor_fixed<double, xt::xshape<dim>> min_corner = {0.0, 0.0};
   xt::xtensor_fixed<double, xt::xshape<dim>> max_corner = {2.0, 1.0};
-  std::size_t min_level = 6;
+  std::size_t min_level = 4;
   std::size_t max_level = 6;
 
   // Simulation parameters
-  double Tf  = 0.09;
+  double Tf  = 0.03;
   double cfl = 0.5;
   double t   = 0.0;
 
@@ -371,10 +388,16 @@ int main(int argc, char* argv[]) {
   double dx = samurai::cell_length(min_level);
   double dt = cfl*dx/get_max_sigma(mesh, vel ,c);
 
+  // Routine for mesh adaptation
+  auto adapt = samurai::make_MRAdapt(vel);
+
   // Start the loop
   std::size_t nsave = 0;
   std::size_t nt    = 0;
   while(t != Tf) {
+    // AMR adaptation
+    adapt(1e-10, 0, conserved_variables, p_bar, c);
+
     t += dt;
     if(t > Tf) {
       dt += Tf - t;
@@ -387,11 +410,13 @@ int main(int argc, char* argv[]) {
     samurai::update_ghost_mr(conserved_variables, vel, p_bar, c);
     samurai::update_bc(conserved_variables, vel, p_bar, c);
     auto flux_conserved = flux(conserved_variables);
+    conserved_variables_np1.resize();
     conserved_variables_np1 = conserved_variables - dt*flux_conserved;
 
     std::swap(conserved_variables.array(), conserved_variables_np1.array());
 
     // Update auxiliary useful fields which are not modified by relaxation
+    rho.resize();
     samurai::for_each_cell(mesh,
                            [&](const auto& cell)
                            {
@@ -416,12 +441,20 @@ int main(int argc, char* argv[]) {
 
     // Apply relaxation if desired, which will modify alpha1_bar and, consequently, for what
     // concerns next time step, rho_alpha1_bar and p_bar
+    alpha1_bar.resize();
     if(apply_relaxation) {
       auto alpha1_bar_rho1 = samurai::make_field<double, 1>("alpha1_bar_rho1", mesh);
       auto alpha2_bar_rho2 = samurai::make_field<double, 1>("alpha2_bar_rho2", mesh);
       samurai::for_each_cell(mesh,
                              [&](const auto& cell)
                              {
+                               if(conserved_variables[cell][ALPHA1_D_INDEX] > 1.0 - 1e-5) {
+                                 std::cout << "alpha1_d equal or greater than 1" << std::endl;
+                               }
+                               if(std::isnan(conserved_variables[cell][ALPHA1_D_INDEX])) {
+                                 std::cout << "NaN detected in alpha1_d" << std::endl;
+                               }
+
                                alpha1_bar_rho1[cell] = conserved_variables[cell][M1_INDEX]/
                                                        (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
 
@@ -439,6 +472,11 @@ int main(int argc, char* argv[]) {
                             (2.0*alpha2_bar_rho2*c0_phase2*c0_phase2);
 
       alpha1_bar         = betaPos/(1.0 + betaPos);
+
+      if(is_field_nan(alpha1_bar)) {
+        std::cout << "NaN detected in alpha1_bar" << std::endl;
+        exit(1);
+      }
     }
     else {
       samurai::for_each_cell(mesh,
@@ -450,6 +488,11 @@ int main(int argc, char* argv[]) {
     }
 
     // Update auxiliary useful fields
+    alpha2_bar.resize();
+    alpha1.resize();
+    rho1.resize();
+    alpha2.resize();
+    rho2.resize();
     samurai::for_each_cell(mesh,
                            [&](const auto& cell)
                            {
