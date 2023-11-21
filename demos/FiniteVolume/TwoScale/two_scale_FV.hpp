@@ -2,6 +2,17 @@
 #include <samurai/schemes/fv.hpp>
 
 namespace EquationData {
+  // Declare some parameters related to EOS.
+  static constexpr double p0_phase1   = 1e5;
+  static constexpr double p0_phase2   = 1e5;
+
+  static constexpr double rho0_phase1 = 1.0;
+  static constexpr double rho0_phase2 = 1e3;
+
+  static constexpr double c0_phase1   = 3.0;
+  static constexpr double c0_phase2   = 15.0;
+
+  // Use auxiliary variables for the indices for the sake of generality
   static constexpr std::size_t M1_INDEX             = 0;
   static constexpr std::size_t M2_INDEX             = 1;
   static constexpr std::size_t M1_D_INDEX           = 2;
