@@ -78,8 +78,10 @@ namespace samurai {
                                        const auto& left  = cells[0];
                                        const auto& right = cells[1];
 
-                                       const auto lambda = std::max(std::abs(vel[left](d)) + c[left],
-                                                                    std::abs(vel[right](d)) + c[right]);
+                                       const auto lambda = std::max(std::max(std::abs(vel[left](d) + c[left]),
+                                                                             std::abs(vel[left](d) - c[left])),
+                                                                    std::max(std::abs(vel[right](d) + c[right]),
+                                                                             std::abs(vel[right](d) + c[right])));
 
                                        return 0.5*(f(field[left], vel[left], pres[left]) + f(field[right], vel[right], pres[right])) +
                                               0.5*lambda*(field[left] - field[right]);

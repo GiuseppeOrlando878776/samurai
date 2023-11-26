@@ -87,7 +87,6 @@ private:
   Field_Vect vel;
 
   /*--- Now, it's time to declare some member functions that we will employ ---*/
-
   void init_variables(); // Routine to initialize the variables (both conserved and auxiliary, this is problem dependent)
 
   void impose_left_dirichet_BC(); // Impose Dirichlet boundary conditions for left boundary (this is problem dependent)
@@ -112,8 +111,8 @@ TwoScale<dim>::TwoScale(const xt::xtensor_fixed<double, xt::xshape<dim>>& min_co
                         std::size_t min_level, std::size_t max_level,
                         double Tf_, double cfl_, std::size_t nfiles_,
                         bool apply_relax_):
-    box(min_corner, max_corner), mesh(box, min_level, max_level, {false, true}),
-    apply_relax(apply_relax_), Tf(Tf_), cfl(cfl_), nfiles(nfiles_) {
+  box(min_corner, max_corner), mesh(box, min_level, max_level, {false, true}),
+  apply_relax(apply_relax_), Tf(Tf_), cfl(cfl_), nfiles(nfiles_) {
     EOS_phase1 = LinearizedBarotropicEOS(p0_phase1, rho0_phase1, c0_phase1);
     EOS_phase2 = LinearizedBarotropicEOS(p0_phase2, rho0_phase2, c0_phase2);
 
@@ -380,9 +379,9 @@ double TwoScale<dim>::get_max_lambda() const {
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
                          {
-                           if((std::abs(vel[cell][0]) + std::abs(vel[cell][1]) + c[cell]) > res) {
-                             res = std::abs(vel[cell][0]) + std::abs(vel[cell][1]) + c[cell];
-                           }
+                           res = std::max(std::max(std::abs(vel[cell][0]) + c[cell],
+                                                   std::abs(vel[cell][1]) + c[cell]),
+                                          res);
                          });
 
   return res;
