@@ -56,7 +56,7 @@ private:
 
   using Field        = samurai::Field<decltype(mesh), double, 7, false>;
   using Field_Scalar = samurai::Field<decltype(mesh), double, 1, false>;
-  using Field_Vel    = samurai::Field<decltype(mesh), double, dim, false>;
+  using Field_Vect   = samurai::Field<decltype(mesh), double, dim, false>;
 
   LinearizedBarotropicEOS EOS_phase1,
                           EOS_phase2; // The two varaibles which take care of the
@@ -84,7 +84,7 @@ private:
                p_bar,
                c;
 
-  Field_Vel vel;
+  Field_Vect vel;
 
   /*--- Now, it's time to declare some member functions that we will employ ---*/
 
@@ -389,36 +389,54 @@ double TwoScale<dim>::get_max_lambda() const {
 }
 
 
-// Apply the relaxation. Notice that the present implementation is specific
-// and valid for LinearizedEOS
-// TODO: Add the routine to do with Newton method
+// Apply the relaxation. This procedure is valid for a generic EOS
 //
 template<std::size_t dim>
 void TwoScale<dim>::apply_relaxation() {
-  auto alpha1_bar_rho1 = samurai::make_field<double, 1>("alpha1_bar_rho1", mesh);
-  auto alpha2_bar_rho2 = samurai::make_field<double, 1>("alpha2_bar_rho2", mesh);
-  samurai::for_each_cell(mesh,
-                         [&](const auto& cell)
-                         {
-                           alpha1_bar_rho1[cell] = conserved_variables[cell][M1_INDEX]/
-                                                   (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+  // Apply relaxation with Newton method
+  const double eps = 1e-9;
+  const double tol = 1e-5;
+  std::size_t Newton_iter = 0;
+  bool relaxation_applied = true;
+  while(relaxation_applied == true) {
+    Newton_iter++;
+    relaxation_applied = false;
+    samurai::for_each_cell(mesh,
+                           [&](const auto& cell)
+                           {
+                             // Compute partial densities since alpha1_bar is potentially changed
+                             rho1[cell] = conserved_variables[cell][M1_INDEX]/
+                                          (alpha1_bar[cell]*
+                                           (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]));
 
-                           alpha2_bar_rho2[cell] = conserved_variables[cell][M2_INDEX]/
-                                                   (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
-                         });
+                             rho2[cell] = conserved_variables[cell][M2_INDEX]/
+                                          ((1.0 - alpha1_bar[cell])*
+                                           (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]));
 
-  const auto q      = EOS_phase2.get_rho0()*EOS_phase2.get_c0()*EOS_phase2.get_c0()
-                    - EOS_phase1.get_rho0()*EOS_phase1.get_c0()*EOS_phase1.get_c0();
-  const auto qtilde = alpha2_bar_rho2*EOS_phase2.get_c0()*EOS_phase2.get_c0();
-                    - alpha1_bar_rho1*EOS_phase1.get_c0()*EOS_phase1.get_c0();
+                             const double F = (1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*
+                                              (EOS_phase1.pres_value(rho1[cell]) - EOS_phase2.pres_value(rho2[cell]));
 
-  const auto betaPos = (q - qtilde +
-                        xt::sqrt((q - qtilde)*(q - qtilde) +
-                                 4.0*alpha1_bar_rho1*EOS_phase1.get_c0()*EOS_phase1.get_c0()*
-                                     alpha2_bar_rho2*EOS_phase2.get_c0()*EOS_phase2.get_c0()))/
-                        (2.0*alpha2_bar_rho2*EOS_phase2.get_c0()*EOS_phase2.get_c0());
+                             if(std::abs(F) > tol*EOS_phase1.get_p0() && alpha1_bar[cell] > eps && 1.0 - alpha1_bar[cell] > eps) {
+                               relaxation_applied = true;
 
-  alpha1_bar         = betaPos/(1.0 + betaPos);
+                               // Compute the derivative recalling that for a barotropic EOS dp/drho = c^2
+                               const double dF = -conserved_variables[cell][M1_INDEX]/(alpha1_bar[cell]*alpha1_bar[cell])*
+                                                  EOS_phase1.c_value(rho1[cell])*EOS_phase1.c_value(rho1[cell])
+                                                 -conserved_variables[cell][M2_INDEX]/((1.0 - alpha1_bar[cell])*(1.0 - alpha1_bar[cell]))*
+                                                  EOS_phase2.c_value(rho2[cell])*EOS_phase2.c_value(rho2[cell]);
+
+                               // Apply Newton method
+                               const double dalpha1_bar = -F/dF;
+                               alpha1_bar[cell] += dalpha1_bar < 0 ? std::max(dalpha1_bar, -0.9*alpha1_bar[cell]) :
+                                                                     std::min(dalpha1_bar, 0.9*(1.0 - alpha1_bar[cell]));
+                             }
+                           });
+    if(Newton_iter > 50) {
+      std::cout << "Netwon method not converged" << std::endl;
+      save(fs::current_path(), "FV_two_scale", "_diverged", conserved_variables, vel, alpha1_bar, alpha1, p_bar, c, rho1, rho2);
+      exit(1);
+    }
+  }
 }
 
 
@@ -552,16 +570,13 @@ void TwoScale<dim>::run() {
 
     // Apply relaxation if desired, which will modify alpha1_bar and, consequently, for what
     // concerns next time step, rho_alpha1_bar and p_bar
+    samurai::for_each_cell(mesh,
+                           [&](const auto& cell)
+                           {
+                             alpha1_bar[cell] = conserved_variables[cell][RHO_ALPHA1_BAR_INDEX]/rho[cell];
+                           });
     if(apply_relax) {
       apply_relaxation();
-    }
-    else {
-      samurai::for_each_cell(mesh,
-                             [&](const auto& cell)
-                             {
-                               alpha1_bar[cell] = conserved_variables[cell][RHO_ALPHA1_BAR_INDEX]/
-                                                  rho[cell];
-                             });
     }
 
     // Update auxiliary useful fields

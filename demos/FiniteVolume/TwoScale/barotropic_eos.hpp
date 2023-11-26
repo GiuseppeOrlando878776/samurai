@@ -58,10 +58,7 @@ template<class Field>
 Field LinearizedBarotropicEOS::c_value(const Field& rho) const {
   (void) rho;
 
-  Field res;
-  res.fill(c0);
-
-  return res;
+  return c0;
 }
 
 

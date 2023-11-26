@@ -30,10 +30,10 @@ namespace samurai {
    * Implementation of discretization of a conservation law with upwind/Rusanov flux
    * along the horizontal direction
    */
-  template<class Field, class Field_Vel, class Field_Scalar>
-  auto make_two_scale(const Field_Vel& vel, const Field_Scalar& pres, const Field_Scalar& c) {
+  template<class Field, class Field_Vect, class Field_Scalar>
+  auto make_two_scale(const Field_Vect& vel, const Field_Scalar& pres, const Field_Scalar& c) {
     static constexpr std::size_t dim = Field::dim;
-    static_assert(Field::dim == Field_Vel::size, "No mathcing spactial dimension in make_two_scale");
+    static_assert(Field::dim == Field_Vect::size, "No mathcing spactial dimension in make_two_scale");
 
     static constexpr std::size_t field_size        = Field::size;
     static constexpr std::size_t output_field_size = field_size;
