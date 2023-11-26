@@ -24,11 +24,10 @@ int main(int argc, char* argv[]) {
   std::size_t nfiles = 100;
 
   // Create the instance of the class to perform the simulation
-  auto TwoScaleSim = TwoScale(min_corner, max_corner, min_level, max_level,
-                              Tf, cfl, nfiles, apply_relaxation);
+  auto TwoScale_Sim = TwoScale(min_corner, max_corner, min_level, max_level,
+                               Tf, cfl, nfiles, apply_relaxation);
 
-
-  TwoScaleSim.run();
+  TwoScale_Sim.run();
 
   return 0;
 }

@@ -57,9 +57,6 @@ private:
   using Field        = samurai::Field<decltype(mesh), double, 7, false>;
   using Field_Scalar = samurai::Field<decltype(mesh), double, 1, false>;
   using Field_Vel    = samurai::Field<decltype(mesh), double, dim, false>;
-  /*using Field        = decltype(samurai::make_field<double, 7>("conserved", mesh));
-  using Field_Scalar = decltype(samurai::make_field<double, 1>("scalar", mesh));
-  using Field_Vel    = decltype(samurai::make_field<double, dim>("vector", mesh));*/
 
   LinearizedBarotropicEOS EOS_phase1,
                           EOS_phase2; // The two varaibles which take care of the
@@ -97,7 +94,7 @@ private:
 
   void impose_right_dirichet_BC(); // Impose Dirichlet boundary conditions for right boundary (this is problem dependent)
 
-  double get_max_sigma() const; // Compute the estimate of the maximum eigenvalue
+  double get_max_lambda() const; // Compute the estimate of the maximum eigenvalue
 
   void apply_relaxation(); // Apply the relaxation
 
@@ -377,7 +374,7 @@ void TwoScale<dim>::impose_right_dirichet_BC() {
 // Compute the estimate of the maximum eigenvalue for CFL condition
 //
 template<std::size_t dim>
-double TwoScale<dim>::get_max_sigma() const {
+double TwoScale<dim>::get_max_lambda() const {
   double res = 0.0;
 
   samurai::for_each_cell(mesh,
@@ -410,8 +407,8 @@ void TwoScale<dim>::apply_relaxation() {
                                                    (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
                          });
 
-  const auto q      = rho0_phase2*EOS_phase2.get_c0()*EOS_phase2.get_c0()
-                    - rho0_phase1*EOS_phase1.get_c0()*EOS_phase1.get_c0();
+  const auto q      = EOS_phase2.get_rho0()*EOS_phase2.get_c0()*EOS_phase2.get_c0()
+                    - EOS_phase1.get_rho0()*EOS_phase1.get_c0()*EOS_phase1.get_c0();
   const auto qtilde = alpha2_bar_rho2*EOS_phase2.get_c0()*EOS_phase2.get_c0();
                     - alpha1_bar_rho1*EOS_phase1.get_c0()*EOS_phase1.get_c0();
 
@@ -523,7 +520,7 @@ void TwoScale<dim>::run() {
   // Set initial time step
   using mesh_id_t = typename decltype(mesh)::mesh_id_t;
   double dx = samurai::cell_length(mesh[mesh_id_t::cells].max_level());
-  double dt = cfl*dx/get_max_sigma();
+  double dt = cfl*dx/get_max_lambda();
 
   // Start the loop
   std::size_t nsave = 0;
@@ -551,7 +548,7 @@ void TwoScale<dim>::run() {
 
     // Compute updated time step
     dx = samurai::cell_length(mesh[mesh_id_t::cells].max_level());
-    dt = std::min(dt, cfl*dx/get_max_sigma());
+    dt = std::min(dt, cfl*dx/get_max_lambda());
 
     // Apply relaxation if desired, which will modify alpha1_bar and, consequently, for what
     // concerns next time step, rho_alpha1_bar and p_bar
