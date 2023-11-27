@@ -3,7 +3,7 @@
 
 namespace EquationData {
   // Declare parameter related to surface tension coefficient
-  static constexpr double sigma = 0.1;
+  static constexpr double sigma = 1.0;
 
   // Declare some parameters related to EOS.
   static constexpr double p0_phase1   = 1e5;
