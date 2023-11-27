@@ -95,6 +95,8 @@ private:
 
   double get_max_lambda() const; // Compute the estimate of the maximum eigenvalue
 
+  void apply_relaxation_linearized_EOS(); // Apply the relaxation specific for linearized EOS
+
   void apply_relaxation(); // Apply the relaxation
 
   void update_auxiliary_fields_pre_relaxation(); // Update auxiliary fields which are not touched by relaxation
@@ -385,6 +387,37 @@ double TwoScale<dim>::get_max_lambda() const {
                          });
 
   return res;
+}
+
+
+// Apply the relaxation specific for the linearized EOS
+//
+template<std::size_t dim>
+void TwoScale<dim>::apply_relaxation_linearized_EOS() {
+  auto alpha1_bar_rho1 = samurai::make_field<double, 1>("alpha1_bar_rho1", mesh);
+  auto alpha2_bar_rho2 = samurai::make_field<double, 1>("alpha2_bar_rho2", mesh);
+  samurai::for_each_cell(mesh,
+                         [&](const auto& cell)
+                         {
+                           alpha1_bar_rho1[cell] = conserved_variables[cell][M1_INDEX]/
+                                                   (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+
+                           alpha2_bar_rho2[cell] = conserved_variables[cell][M2_INDEX]/
+                                                   (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+                         });
+
+  const auto q      = EOS_phase2.get_rho0()*EOS_phase2.get_c0()*EOS_phase2.get_c0()
+                    - EOS_phase1.get_rho0()*EOS_phase1.get_c0()*EOS_phase1.get_c0();
+  const auto qtilde = alpha2_bar_rho2*EOS_phase2.get_c0()*EOS_phase2.get_c0();
+                    - alpha1_bar_rho1*EOS_phase1.get_c0()*EOS_phase1.get_c0();
+
+  const auto betaPos = (q - qtilde +
+                        xt::sqrt((q - qtilde)*(q - qtilde) +
+                                 4.0*alpha1_bar_rho1*EOS_phase1.get_c0()*EOS_phase1.get_c0()*
+                                     alpha2_bar_rho2*EOS_phase2.get_c0()*EOS_phase2.get_c0()))/
+                        (2.0*alpha2_bar_rho2*EOS_phase2.get_c0()*EOS_phase2.get_c0());
+
+  alpha1_bar         = betaPos/(1.0 + betaPos);
 }
 
 
