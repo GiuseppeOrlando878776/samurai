@@ -272,8 +272,8 @@ void TwoScale<dim>::init_variables() {
                            p_bar[cell] = alpha1_bar[cell]*EOS_phase1.pres_value(rho1[cell])
                                        + alpha2_bar[cell]*EOS_phase2.pres_value(rho2[cell]);
 
-                           const double c_squared = conserved_variables[cell][M1_INDEX]*EOS_phase1.get_c0()*EOS_phase1.get_c0()
-                                                  + conserved_variables[cell][M2_INDEX]*EOS_phase2.get_c0()*EOS_phase2.get_c0();
+                           const double c_squared = conserved_variables[cell][M1_INDEX]*EOS_phase1.c_value(rho1[cell])*EOS_phase1.c_value(rho1[cell])
+                                                  + conserved_variables[cell][M2_INDEX]*EOS_phase2.c_value(rho2[cell])*EOS_phase2.c_value(rho2[cell]);
                            c[cell] = std::sqrt(c_squared/rho[cell])/
                                      (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
                          });
@@ -318,8 +318,8 @@ void TwoScale<dim>::impose_left_dirichet_BC() {
   samurai::make_bc<samurai::Dirichlet>(p_bar, p_bar_L)->on(left);
 
   // Impose BC for the speed of sound
-  const double c_squared = m1_L*EOS_phase1.get_c0()*EOS_phase1.get_c0()
-                         + m2_L*EOS_phase2.get_c0()*EOS_phase2.get_c0();
+  const double c_squared = m1_L*EOS_phase1.c_value(rho1_L)*EOS_phase1.c_value(rho1_L)
+                         + m2_L*EOS_phase2.c_value(rho2_L)*EOS_phase2.c_value(rho2_L);
   const double c_L       = std::sqrt(c_squared/rho_L)/(1.0 - alpha1_d_L);
 
   samurai::make_bc<samurai::Dirichlet>(c, c_L)->on(left);
@@ -364,8 +364,8 @@ void TwoScale<dim>::impose_right_dirichet_BC() {
   samurai::make_bc<samurai::Dirichlet>(p_bar, p_bar_R)->on(right);
 
   // Impose BC for the speed of sound
-  const double c_squared = m1_R*EOS_phase1.get_c0()*EOS_phase1.get_c0()
-                         + m2_R*EOS_phase2.get_c0()*EOS_phase2.get_c0();
+  const double c_squared = m1_R*EOS_phase1.c_value(rho1_R)*EOS_phase1.c_value(rho1_R)
+                         + m2_R*EOS_phase2.c_value(rho2_R)*EOS_phase2.c_value(rho2_R);
   const double c_R       = std::sqrt(c_squared/rho_R)/(1.0 - alpha1_d_R);
 
   samurai::make_bc<samurai::Dirichlet>(c, c_R)->on(right);
@@ -487,11 +487,6 @@ void TwoScale<dim>::update_auxiliary_fields_pre_relaxation() {
                                            rho[cell];
                             vel[cell][1] = conserved_variables[cell][RHO_V_INDEX]/
                                            rho[cell];
-
-                            const double c_squared = conserved_variables[cell][M1_INDEX]*EOS_phase1.get_c0()*EOS_phase1.get_c0()
-                                                   + conserved_variables[cell][M2_INDEX]*EOS_phase2.get_c0()*EOS_phase2.get_c0();
-                            c[cell] = std::sqrt(c_squared/rho[cell])/
-                                      (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
                          });
 }
 
@@ -521,6 +516,11 @@ void TwoScale<dim>::update_auxiliary_fields_post_relaxation() {
 
                            p_bar[cell] = alpha1_bar[cell]*EOS_phase1.pres_value(rho1[cell])
                                        + alpha2_bar[cell]*EOS_phase2.pres_value(rho2[cell]);
+
+                           const double c_squared = conserved_variables[cell][M1_INDEX]*EOS_phase1.c_value(rho1[cell])*EOS_phase1.c_value(rho1[cell])
+                                                  + conserved_variables[cell][M2_INDEX]*EOS_phase2.c_value(rho2[cell])*EOS_phase2.c_value(rho2[cell]);
+                           c[cell] = std::sqrt(c_squared/rho[cell])/
+                                     (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
                          });
 }
 
