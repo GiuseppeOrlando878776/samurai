@@ -151,7 +151,7 @@ void TwoScaleCapillarity<dim>::update_geometry() {
                          {
                            mod_grad_alpha1_bar[cell] = std::sqrt(xt::sum(grad_alpha1_bar[cell]*grad_alpha1_bar[cell])());
 
-                           normal[cell] = grad_alpha1_bar[cell]/(mod_grad_alpha1_bar[cell] + 1e-10);
+                           normal[cell] = grad_alpha1_bar[cell]/(mod_grad_alpha1_bar[cell] + 1e-9);
                          });
   samurai::update_ghost_mr(normal);
   H = -divergence(normal);
@@ -257,8 +257,8 @@ void TwoScaleCapillarity<dim>::init_variables() {
                            p_bar[cell] = alpha1_bar[cell]*p1[cell]
                                        + alpha2_bar[cell]*p2[cell];
 
-                           const double c_squared = conserved_variables[cell][M1_INDEX]*EOS_phase1.get_c0()*EOS_phase1.get_c0()
-                                                  + conserved_variables[cell][M2_INDEX]*EOS_phase2.get_c0()*EOS_phase2.get_c0();
+                           const double c_squared = conserved_variables[cell][M1_INDEX]*EOS_phase1.c_value(rho1[cell])*EOS_phase1.c_value(rho1[cell])
+                                                  + conserved_variables[cell][M2_INDEX]*EOS_phase2.c_value(rho2[cell])*EOS_phase2.c_value(rho2[cell]);
                            c[cell] = std::sqrt(c_squared/rho[cell])/
                                      (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
                          });
@@ -331,7 +331,8 @@ void TwoScaleCapillarity<dim>::apply_relaxation() {
 
                                // Apply Newton method
                                const double dalpha1_bar = -F/dF;
-                               alpha1_bar[cell] += dalpha1_bar;
+                               alpha1_bar[cell] += (dalpha1_bar < 0) ? std::max(dalpha1_bar, -0.9*alpha1_bar[cell])
+                                                                     : std::min(dalpha1_bar, 0.9*(1.0 - alpha1_bar[cell]));
                              }
                            });
     if(Newton_iter > 100) {
@@ -359,11 +360,6 @@ void TwoScaleCapillarity<dim>::update_auxiliary_fields_pre_relaxation() {
                                           rho[cell];
                            vel[cell][1] = conserved_variables[cell][RHO_V_INDEX]/
                                           rho[cell];
-
-                           const double c_squared = conserved_variables[cell][M1_INDEX]*EOS_phase1.get_c0()*EOS_phase1.get_c0()
-                                                  + conserved_variables[cell][M2_INDEX]*EOS_phase2.get_c0()*EOS_phase2.get_c0();
-                           c[cell] = std::sqrt(c_squared/rho[cell])/
-                                     (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
                          });
 }
 
@@ -398,6 +394,11 @@ void TwoScaleCapillarity<dim>::update_auxiliary_fields_post_relaxation() {
 
                            p_bar[cell] = alpha1_bar[cell]*p1[cell]
                                        + alpha2_bar[cell]*p2[cell];
+
+                           const double c_squared = conserved_variables[cell][M1_INDEX]*EOS_phase1.c_value(rho1[cell])*EOS_phase1.c_value(rho1[cell])
+                                                  + conserved_variables[cell][M2_INDEX]*EOS_phase2.c_value(rho2[cell])*EOS_phase2.c_value(rho2[cell]);
+                           c[cell] = std::sqrt(c_squared/rho[cell])/
+                                     (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
                          });
 }
 
@@ -482,18 +483,13 @@ void TwoScaleCapillarity<dim>::run() {
     samurai::for_each_cell(mesh,
                            [&](const auto& cell)
                            {
-                             alpha1_bar[cell] = std::min(std::max(conserved_variables[cell][RHO_ALPHA1_BAR_INDEX]/rho[cell], 0.0), 1.0);
+                             alpha1_bar[cell] = conserved_variables[cell][RHO_ALPHA1_BAR_INDEX]/rho[cell];
                            });
     if(apply_relax) {
       apply_relaxation();
     }
 
     // Update auxiliary useful fields
-    samurai::for_each_cell(mesh,
-                           [&](const auto& cell)
-                           {
-                             alpha1_bar[cell] = std::min(std::max(alpha1_bar[cell], 0.0), 1.0);
-                           });
     update_auxiliary_fields_post_relaxation();
     update_geometry();
 
