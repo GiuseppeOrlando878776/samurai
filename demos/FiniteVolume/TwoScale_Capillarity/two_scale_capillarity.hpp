@@ -24,7 +24,7 @@ using namespace EquationData;
 template<std::size_t dim>
 class TwoScaleCapillarity {
 public:
-  using Config = samurai::MRConfig<dim>;
+  using Config    = samurai::MRConfig<dim>;
 
   TwoScaleCapillarity() = default; // Default constructor. This will do nothing
                                    // and basically will never be used
@@ -53,6 +53,7 @@ private:
   const samurai::Box<double, dim> box;
 
   samurai::MRMesh<Config> mesh; // Variable to store the mesh
+  using mesh_id_t = typename decltype(mesh)::mesh_id_t;
 
   using Field        = samurai::Field<decltype(mesh), double, 7, false>;
   using Field_Scalar = samurai::Field<decltype(mesh), double, 1, false>;
@@ -99,6 +100,7 @@ private:
   divergence_type divergence;
 
   double Hmax; // maximum curvature before clipping
+  double eps;  // Tolerance when we want to avoid division by zero
 
   /*--- Now, it's time to declare some member functions that we will employ ---*/
   void update_geometry(); // Auxiliary routine to compute normals and curvature
@@ -127,7 +129,7 @@ TwoScaleCapillarity<dim>::TwoScaleCapillarity(const xt::xtensor_fixed<double, xt
   apply_relax(apply_relax_), Tf(Tf_), cfl(cfl_), nfiles(nfiles_),
   gradient(samurai::make_gradient<decltype(alpha1_bar)>()),
   divergence(samurai::make_divergence<decltype(normal)>()),
-  Hmax(1e2) {
+  Hmax(1e2), eps(1e-9) {
     EOS_phase1 = LinearizedBarotropicEOS(p0_phase1, rho0_phase1, c0_phase1);
     EOS_phase2 = LinearizedBarotropicEOS(p0_phase2, rho0_phase2, c0_phase2);
 
@@ -154,14 +156,23 @@ void TwoScaleCapillarity<dim>::update_geometry() {
                          {
                            mod_grad_alpha1_bar[cell] = std::sqrt(xt::sum(grad_alpha1_bar[cell]*grad_alpha1_bar[cell])());
 
-                           normal[cell] = grad_alpha1_bar[cell]/(mod_grad_alpha1_bar[cell] + 1e-9);
+                           if(mod_grad_alpha1_bar[cell] > 0.0) {
+                             normal[cell] = grad_alpha1_bar[cell]/mod_grad_alpha1_bar[cell];
+                           }
+                           else {
+                             for(std::size_t d = 0; d < dim; ++d) {
+                               normal[cell][d] = nan("");
+                             }
+                           }
                          });
   samurai::update_ghost_mr(normal);
   H = -divergence(normal);
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
                          {
-                           H[cell] = (H[cell] > 0) ? std::min(H[cell], Hmax) : std::max(H[cell], -Hmax);
+                           if(!std::isnan(H[cell])) {
+                             H[cell] = (H[cell] > 0) ? std::min(H[cell], Hmax) : std::max(H[cell], -Hmax);
+                           }
                          });
 }
 
@@ -194,11 +205,11 @@ void TwoScaleCapillarity<dim>::init_variables() {
 
   // Declare some constant parameters associated to the grid and to the
   // initial state
-  const double L   = 0.75;
-  const double x0  = 0.5*L;
-  const double y0  = 0.5*L;
-  const double R   = 0.2;
-  const double eps = 0.2*R;
+  const double L     = 0.75;
+  const double x0    = 0.5*L;
+  const double y0    = 0.5*L;
+  const double R     = 0.2;
+  const double eps_R = 0.2*R;
 
   const double U_0 = 0.0;
   const double U_1 = 0.0;
@@ -214,10 +225,10 @@ void TwoScaleCapillarity<dim>::init_variables() {
 
                            const double r = std::sqrt((x - x0)*(x - x0) + (y - y0)*(y - y0));
 
-                           const double w = (r >= R && r < R + eps) ?
-                                            std::max(std::exp(2.0*(r - R)*(r - R)/(eps*eps)*((r - R)*(r - R)/(eps*eps) - 3.0)/
-                                                              (((r - R)*(r - R)/(eps*eps) - 1.0)*((r - R)*(r - R)/(eps*eps) - 1.0))), 0.0) :
-                                            (r < R ? 1.0 : 0.0);
+                           const double w = (r >= R && r < R + eps_R) ?
+                                            std::max(std::exp(2.0*(r - R)*(r - R)/(eps_R*eps_R)*((r - R)*(r - R)/(eps_R*eps_R) - 3.0)/
+                                                              (((r - R)*(r - R)/(eps_R*eps_R) - 1.0)*((r - R)*(r - R)/(eps_R*eps_R) - 1.0))), 0.0) :
+                                            ((r < R) ? 1.0 : 0.0);
 
                            conserved_variables[cell][ALPHA1_D_INDEX] = 0.0;
 
@@ -241,11 +252,12 @@ void TwoScaleCapillarity<dim>::init_variables() {
                          [&](const auto& cell)
                          {
                            p1[cell] = EOS_phase2.get_p0();
-                           p1[cell] += (alpha1_bar[cell] == 1.0) ? sigma/R : sigma*H[cell];
+                           p1[cell] += (alpha1_bar[cell] > 1.0 - eps) ? sigma/R : sigma*H[cell];
                            rho1[cell] = EOS_phase1.rho_value(p1[cell]);
 
-                           conserved_variables[cell][M1_INDEX] = alpha1[cell]*rho1[cell];
+                           conserved_variables[cell][M1_INDEX] = (!std::isnan(rho1[cell])) ? alpha1[cell]*rho1[cell] : 0.0;
 
+                           //p2[cell]   = (alpha1_bar[cell] < 1.0 - eps) ? EOS_phase2.get_p0() : nan("");
                            p2[cell]   = EOS_phase2.get_p0();
                            rho2[cell] = EOS_phase2.rho_value(p2[cell]);
 
@@ -262,8 +274,9 @@ void TwoScaleCapillarity<dim>::init_variables() {
                            conserved_variables[cell][RHO_U_INDEX] = rho[cell]*vel[cell][0];
                            conserved_variables[cell][RHO_V_INDEX] = rho[cell]*vel[cell][1];
 
-                           p_bar[cell] = alpha1_bar[cell]*p1[cell]
-                                       + alpha2_bar[cell]*p2[cell];
+                           p_bar[cell] = (alpha1_bar[cell] > eps && alpha2_bar[cell] > eps) ?
+                                         alpha1_bar[cell]*p1[cell] + alpha2_bar[cell]*p2[cell] :
+                                         ((alpha1_bar[cell] < eps) ? p2[cell] : p1[cell]);
 
                            const double c_squared = conserved_variables[cell][M1_INDEX]*EOS_phase1.c_value(rho1[cell])*EOS_phase1.c_value(rho1[cell])
                                                   + conserved_variables[cell][M2_INDEX]*EOS_phase2.c_value(rho2[cell])*EOS_phase2.c_value(rho2[cell]);
@@ -298,7 +311,6 @@ double TwoScaleCapillarity<dim>::get_max_lambda() const {
 template<std::size_t dim>
 void TwoScaleCapillarity<dim>::apply_relaxation() {
   // Apply relaxation with Newton method
-  const double eps = 1e-9;
   const double tol = 1e-8;
   std::size_t Newton_iter = 0;
   bool relaxation_applied = true;
@@ -311,24 +323,24 @@ void TwoScaleCapillarity<dim>::apply_relaxation() {
                              // Compute partial densities since alpha1_bar is potentially changed
                              alpha1[cell] = alpha1_bar[cell]*
                                             (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
-                             rho1[cell]   = (alpha1[cell] > 0.0) ?
+                             rho1[cell]   = (alpha1[cell] > eps) ?
                                             conserved_variables[cell][M1_INDEX]/alpha1[cell] :
-                                            EOS_phase1.rho_value(p1[cell]);
+                                            nan("");
                              p1[cell]     = EOS_phase1.pres_value(rho1[cell]);
 
                              alpha2[cell] = 1.0
                                           - alpha1[cell]
                                           - conserved_variables[cell][ALPHA1_D_INDEX];
-                             rho2[cell]   = (alpha2[cell] > 0.0) ?
+                             rho2[cell]   = (alpha2[cell] > eps) ?
                                             conserved_variables[cell][M2_INDEX]/alpha2[cell] :
-                                            EOS_phase2.rho_value(p2[cell]);
+                                            nan("");
                              p2[cell]     = EOS_phase2.pres_value(rho2[cell]);
 
                              const double F = (1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*
                                               (p1[cell] - p2[cell])
                                             - sigma*H[cell];
 
-                             if(std::abs(F) > tol*EOS_phase1.get_p0() && alpha1_bar[cell] > eps && 1.0 - alpha1_bar[cell] > eps) {
+                             if(!std::isnan(F) && std::abs(F) > tol*EOS_phase1.get_p0() && alpha1_bar[cell] > eps && 1.0 - alpha1_bar[cell] > eps) {
                                relaxation_applied = true;
 
                                // Compute the derivative recalling that for a barotropic EOS dp/drho = c^2
@@ -386,22 +398,23 @@ void TwoScaleCapillarity<dim>::update_auxiliary_fields_post_relaxation() {
                            alpha1[cell] = alpha1_bar[cell]*
                                           (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
 
-                           rho1[cell] = (alpha1[cell] > 0.0) ?
+                           rho1[cell] = (alpha1[cell] > eps) ?
                                         conserved_variables[cell][M1_INDEX]/alpha1[cell] :
-                                        EOS_phase1.rho_value(p1[cell]);
+                                        nan("");
                            p1[cell]   = EOS_phase1.pres_value(rho1[cell]);
 
                            alpha2[cell] = 1.0
                                         - alpha1[cell]
                                         - conserved_variables[cell][ALPHA1_D_INDEX];
 
-                           rho2[cell] = (alpha2[cell] > 0.0) ?
+                           rho2[cell] = (alpha2[cell] > eps) ?
                                         conserved_variables[cell][M2_INDEX]/alpha2[cell] :
-                                        EOS_phase2.rho_value(p2[cell]);
+                                        nan("");
                            p2[cell]   = EOS_phase2.pres_value(rho2[cell]);
 
-                           p_bar[cell] = alpha1_bar[cell]*p1[cell]
-                                       + alpha2_bar[cell]*p2[cell];
+                           p_bar[cell] = (alpha1_bar[cell] > eps && alpha2_bar[cell] > eps) ?
+                                         alpha1_bar[cell]*p1[cell] + alpha2_bar[cell]*p2[cell] :
+                                         ((alpha1_bar[cell] < eps) ? p2[cell] : p1[cell]);
 
                            const double c_squared = conserved_variables[cell][M1_INDEX]*EOS_phase1.c_value(rho1[cell])*EOS_phase1.c_value(rho1[cell])
                                                   + conserved_variables[cell][M2_INDEX]*EOS_phase2.c_value(rho2[cell])*EOS_phase2.c_value(rho2[cell]);
@@ -454,7 +467,6 @@ void TwoScaleCapillarity<dim>::run() {
   save(path, filename, suffix_init, conserved_variables, vel, alpha1_bar, alpha1, p_bar, c, rho1, rho2, p1, p2, mod_grad_alpha1_bar, normal, grad_alpha1_bar, H);
 
   // Set initial time step
-  using mesh_id_t = typename decltype(mesh)::mesh_id_t;
   double dx = samurai::cell_length(mesh[mesh_id_t::cells].max_level());
   double dt = cfl*dx/get_max_lambda();
 

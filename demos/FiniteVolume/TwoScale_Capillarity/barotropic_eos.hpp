@@ -49,8 +49,13 @@ LinearizedBarotropicEOS::LinearizedBarotropicEOS(const double p0_, const double 
 //
 template<class Field>
 Field LinearizedBarotropicEOS::pres_value(const Field& rho) const {
+  if(std::isnan(rho)) {
+    return nan("");
+  }
+
   return p0 + c0*c0*(rho - rho0);
 }
+
 
 // Implement the speed of sound from the density
 //
@@ -66,6 +71,10 @@ Field LinearizedBarotropicEOS::c_value(const Field& rho) const {
 //
 template<class Field>
 Field LinearizedBarotropicEOS::rho_value(const Field& pres) const {
+  if(std::isnan(pres)) {
+    return nan("");
+  }
+
   return (pres - p0)/(c0*c0) + rho0;
 }
 

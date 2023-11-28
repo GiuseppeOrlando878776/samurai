@@ -68,12 +68,22 @@ namespace samurai {
           res(RHO_V_INDEX) *= velocity(d);
 
           if constexpr(d == 0) {
-            res(RHO_U_INDEX) += pressure + sigma*(n(0)*n(0) - 1.0)*mod_grad_alpha1_bar;
-            res(RHO_V_INDEX) += sigma*n(0)*n(1)*mod_grad_alpha1_bar;
+            res(RHO_U_INDEX) += pressure;
+            if(!std::isnan(n(0))) {
+              res(RHO_U_INDEX) += sigma*(n(0)*n(0) - 1.0)*mod_grad_alpha1_bar;
+            }
+            if(!std::isnan(n(0)) && !std::isnan(n(1))) {
+              res(RHO_V_INDEX) += sigma*n(0)*n(1)*mod_grad_alpha1_bar;
+            }
           }
           if constexpr(d == 1) {
-            res(RHO_U_INDEX) += sigma*n(0)*n(1)*mod_grad_alpha1_bar;
-            res(RHO_V_INDEX) += pressure + sigma*(n(1)*n(1) - 1.0)*mod_grad_alpha1_bar;
+            if(!std::isnan(n(0)) && !std::isnan(n(1))) {
+              res(RHO_U_INDEX) += sigma*n(0)*n(1)*mod_grad_alpha1_bar;
+            }
+            res(RHO_V_INDEX) += pressure;
+            if(!std::isnan(n(1))) {
+              res(RHO_V_INDEX) += sigma*(n(1)*n(1) - 1.0)*mod_grad_alpha1_bar;
+            }
           }
 
           return res;
