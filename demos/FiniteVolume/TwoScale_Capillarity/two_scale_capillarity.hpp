@@ -311,14 +311,16 @@ void TwoScaleCapillarity<dim>::apply_relaxation() {
                              // Compute partial densities since alpha1_bar is potentially changed
                              alpha1[cell] = alpha1_bar[cell]*
                                             (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
-                             rho1[cell]   = conserved_variables[cell][M1_INDEX]/(alpha1[cell] + 1e-9);
+                             rho1[cell]   = (alpha1[cell] > 0.0) ?
+                                            conserved_variables[cell][M1_INDEX]/alpha1[cell] :
                                             EOS_phase1.rho_value(p1[cell]);
                              p1[cell]     = EOS_phase1.pres_value(rho1[cell]);
 
                              alpha2[cell] = 1.0
                                           - alpha1[cell]
                                           - conserved_variables[cell][ALPHA1_D_INDEX];
-                             rho2[cell]   = conserved_variables[cell][M2_INDEX]/(alpha2[cell] + 1e-9);
+                             rho2[cell]   = (alpha2[cell] > 0.0) ?
+                                            conserved_variables[cell][M2_INDEX]/alpha2[cell] :
                                             EOS_phase2.rho_value(p2[cell]);
                              p2[cell]     = EOS_phase2.pres_value(rho2[cell]);
 
@@ -384,7 +386,8 @@ void TwoScaleCapillarity<dim>::update_auxiliary_fields_post_relaxation() {
                            alpha1[cell] = alpha1_bar[cell]*
                                           (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
 
-                           rho1[cell] = conserved_variables[cell][M1_INDEX]/(alpha1[cell] + 1e-9);
+                           rho1[cell] = (alpha1[cell] > 0.0) ?
+                                        conserved_variables[cell][M1_INDEX]/alpha1[cell] :
                                         EOS_phase1.rho_value(p1[cell]);
                            p1[cell]   = EOS_phase1.pres_value(rho1[cell]);
 
@@ -392,7 +395,8 @@ void TwoScaleCapillarity<dim>::update_auxiliary_fields_post_relaxation() {
                                         - alpha1[cell]
                                         - conserved_variables[cell][ALPHA1_D_INDEX];
 
-                           rho2[cell] = conserved_variables[cell][M2_INDEX]/(alpha2[cell] + 1e-9);
+                           rho2[cell] = (alpha2[cell] > 0.0) ?
+                                        conserved_variables[cell][M2_INDEX]/alpha2[cell] :
                                         EOS_phase2.rho_value(p2[cell]);
                            p2[cell]   = EOS_phase2.pres_value(rho2[cell]);
 
