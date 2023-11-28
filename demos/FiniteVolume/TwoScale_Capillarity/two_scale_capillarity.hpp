@@ -98,6 +98,8 @@ private:
   using divergence_type = decltype(samurai::make_divergence<decltype(normal)>());
   divergence_type divergence;
 
+  double Hmax; // maximum curvature before clipping
+
   /*--- Now, it's time to declare some member functions that we will employ ---*/
   void update_geometry(); // Auxiliary routine to compute normals and curvature
 
@@ -124,7 +126,8 @@ TwoScaleCapillarity<dim>::TwoScaleCapillarity(const xt::xtensor_fixed<double, xt
   box(min_corner, max_corner), mesh(box, min_level, max_level, {true, true}),
   apply_relax(apply_relax_), Tf(Tf_), cfl(cfl_), nfiles(nfiles_),
   gradient(samurai::make_gradient<decltype(alpha1_bar)>()),
-  divergence(samurai::make_divergence<decltype(normal)>()) {
+  divergence(samurai::make_divergence<decltype(normal)>()),
+  Hmax(1e2) {
     EOS_phase1 = LinearizedBarotropicEOS(p0_phase1, rho0_phase1, c0_phase1);
     EOS_phase2 = LinearizedBarotropicEOS(p0_phase2, rho0_phase2, c0_phase2);
 
@@ -155,6 +158,11 @@ void TwoScaleCapillarity<dim>::update_geometry() {
                          });
   samurai::update_ghost_mr(normal);
   H = -divergence(normal);
+  samurai::for_each_cell(mesh,
+                         [&](const auto& cell)
+                         {
+                           H[cell] = (H[cell] > 0) ? std::min(H[cell], Hmax) : std::max(H[cell], -Hmax);
+                         });
 }
 
 
