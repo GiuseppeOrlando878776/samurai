@@ -15,6 +15,8 @@ namespace fs = std::filesystem;
 
 #include "two_scale_capillarity_FV.hpp"
 
+#include <samurai/mr/adapt.hpp>
+
 // Specify the use of this namespace where we just store the indices
 // and, in this case, some parameters related to EOS
 using namespace EquationData;
@@ -470,11 +472,17 @@ void TwoScaleCapillarity<dim>::run() {
   double dx = samurai::cell_length(mesh[mesh_id_t::cells].max_level());
   double dt = cfl*dx/get_max_lambda();
 
+  // Routine for mesh adaptation
+  auto adapt = samurai::make_MRAdapt(mod_grad_alpha1_bar);
+
   // Start the loop
   std::size_t nsave = 0;
   std::size_t nt    = 0;
   double t          = 0.0;
   while(t != Tf) {
+    // AMR adaptation
+    adapt(1e-5, 0, conserved_variables, vel, p_bar, c, normal);
+
     t += dt;
     if(t > Tf) {
       dt += Tf - t;
@@ -486,12 +494,14 @@ void TwoScaleCapillarity<dim>::run() {
     // Apply the numerical scheme without relaxation
     samurai::update_ghost_mr(conserved_variables, vel, p_bar, c, mod_grad_alpha1_bar, normal);
     samurai::update_bc(conserved_variables, vel, p_bar, c, mod_grad_alpha1_bar, normal);
-    auto flux_conserved     = flux(conserved_variables);
+    auto flux_conserved = flux(conserved_variables);
+    conserved_variables_np1.resize();
     conserved_variables_np1 = conserved_variables - dt*flux_conserved;
 
     std::swap(conserved_variables.array(), conserved_variables_np1.array());
 
     // Update auxiliary useful fields which are not modified by relaxation
+    rho.resize();
     update_auxiliary_fields_pre_relaxation();
 
     // Compute updated time step
@@ -500,6 +510,7 @@ void TwoScaleCapillarity<dim>::run() {
 
     // Apply relaxation if desired, which will modify alpha1_bar and, consequently, for what
     // concerns next time step, rho_alpha1_bar and p_bar
+    alpha1_bar.resize();
     samurai::for_each_cell(mesh,
                            [&](const auto& cell)
                            {
@@ -510,6 +521,13 @@ void TwoScaleCapillarity<dim>::run() {
     }
 
     // Update auxiliary useful fields
+    alpha2_bar.resize();
+    alpha1.resize();
+    rho1.resize();
+    p1.resize();
+    alpha2.resize();
+    rho2.resize();
+    p2.resize();
     update_auxiliary_fields_post_relaxation();
     update_geometry();
 

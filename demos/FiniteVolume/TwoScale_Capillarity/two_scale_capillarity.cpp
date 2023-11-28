@@ -11,7 +11,7 @@ int main(int argc, char* argv[]) {
   // Mesh parameters
   xt::xtensor_fixed<double, xt::xshape<dim>> min_corner = {0.0, 0.0};
   xt::xtensor_fixed<double, xt::xshape<dim>> max_corner = {0.75, 0.75};
-  std::size_t min_level = 8;
+  std::size_t min_level = 4;
   std::size_t max_level = 8;
 
   // Simulation parameters
