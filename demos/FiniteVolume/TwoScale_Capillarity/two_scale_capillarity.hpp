@@ -344,9 +344,29 @@ void TwoScaleCapillarity<dim>::apply_relaxation() {
                                                   EOS_phase2.c_value(rho2[cell])*EOS_phase2.c_value(rho2[cell]);
 
                                // Apply Newton method
-                               const double dalpha1_bar = -F/dF;
-                               alpha1_bar[cell] += (dalpha1_bar < 0) ? std::max(dalpha1_bar, -lambda*alpha1_bar[cell])
-                                                                     : std::min(dalpha1_bar, lambda*(1.0 - alpha1_bar[cell]));
+                               const double dalpha1_bar_NR    = -F/dF;
+                               // Upper bound
+                               double dtau_ov_epsilon = std::numeric_limits<double>::infinity();
+                               const double upper_denominator = 1.0/(1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*
+                                                                (F + lambda*(1.0 - alpha1_bar[cell])*dF);
+                               if(upper_denominator > 0.0) {
+                                 dtau_ov_epsilon = lambda*(1.0 - alpha1_bar[cell])/upper_denominator;
+                               }
+                               //Lower bound
+                               const double lower_denominator = 1.0/(1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*
+                                                                (F - lambda*alpha1_bar[cell]*dF);
+                               if(lower_denominator < 0.0) {
+                                 dtau_ov_epsilon = std::min(dtau_ov_epsilon, -lambda*alpha1_bar[cell]/lower_denominator);
+                               }
+                               double dalpha1_bar;
+                               if(std::isinf(dtau_ov_epsilon)) {
+                                 dalpha1_bar = dalpha1_bar_NR;
+                               }
+                               else {
+                                 dalpha1_bar = dtau_ov_epsilon/(1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*F/
+                                               (1.0 - dtau_ov_epsilon*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*dF);
+                               }
+                               alpha1_bar[cell] += dalpha1_bar;
                              }
                            });
     if(Newton_iter > 100) {
