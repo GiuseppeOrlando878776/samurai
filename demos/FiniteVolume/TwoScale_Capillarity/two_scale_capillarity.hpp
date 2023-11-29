@@ -99,7 +99,8 @@ private:
   using divergence_type = decltype(samurai::make_divergence<decltype(normal)>());
   divergence_type divergence;
 
-  double eps; // Tolerance when we want to avoid division by zero
+  double eps;                     // Tolerance when we want to avoid division by zero
+  double mod_grad_alpha1_bar_min; // Minimum threshold for which not computing anymore the unit normal
 
   /*--- Now, it's time to declare some member functions that we will employ ---*/
   void update_geometry(); // Auxiliary routine to compute normals and curvature
@@ -128,7 +129,7 @@ TwoScaleCapillarity<dim>::TwoScaleCapillarity(const xt::xtensor_fixed<double, xt
   apply_relax(apply_relax_), Tf(Tf_), cfl(cfl_), nfiles(nfiles_),
   gradient(samurai::make_gradient<decltype(alpha1_bar)>()),
   divergence(samurai::make_divergence<decltype(normal)>()),
-  eps(1e-9) {
+  eps(1e-9), mod_grad_alpha1_bar_min(0.0) {
     EOS_phase1 = LinearizedBarotropicEOS(p0_phase1, rho0_phase1, c0_phase1);
     EOS_phase2 = LinearizedBarotropicEOS(p0_phase2, rho0_phase2, c0_phase2);
 
@@ -155,7 +156,14 @@ void TwoScaleCapillarity<dim>::update_geometry() {
                          {
                            mod_grad_alpha1_bar[cell] = std::sqrt(xt::sum(grad_alpha1_bar[cell]*grad_alpha1_bar[cell])());
 
-                           normal[cell] = grad_alpha1_bar[cell]/(mod_grad_alpha1_bar[cell] + eps);
+                           if(mod_grad_alpha1_bar[cell] > mod_grad_alpha1_bar_min) {
+                             normal[cell] = grad_alpha1_bar[cell]/mod_grad_alpha1_bar[cell];
+                           }
+                           else {
+                             for(std::size_t d = 0; d < dim; ++d) {
+                               normal[cell][d] = nan("");
+                             }
+                           }
                          });
   samurai::update_ghost_mr(normal);
   H = -divergence(normal);
