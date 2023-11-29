@@ -15,8 +15,6 @@ namespace fs = std::filesystem;
 
 #include "two_scale_capillarity_FV.hpp"
 
-#include <samurai/mr/adapt.hpp>
-
 // Specify the use of this namespace where we just store the indices
 // and, in this case, some parameters related to EOS
 using namespace EquationData;
@@ -101,8 +99,7 @@ private:
   using divergence_type = decltype(samurai::make_divergence<decltype(normal)>());
   divergence_type divergence;
 
-  double Hmax; // maximum curvature before clipping
-  double eps;  // Tolerance when we want to avoid division by zero
+  double eps; // Tolerance when we want to avoid division by zero
 
   /*--- Now, it's time to declare some member functions that we will employ ---*/
   void update_geometry(); // Auxiliary routine to compute normals and curvature
@@ -131,7 +128,7 @@ TwoScaleCapillarity<dim>::TwoScaleCapillarity(const xt::xtensor_fixed<double, xt
   apply_relax(apply_relax_), Tf(Tf_), cfl(cfl_), nfiles(nfiles_),
   gradient(samurai::make_gradient<decltype(alpha1_bar)>()),
   divergence(samurai::make_divergence<decltype(normal)>()),
-  Hmax(1e2), eps(1e-9) {
+  eps(1e-9) {
     EOS_phase1 = LinearizedBarotropicEOS(p0_phase1, rho0_phase1, c0_phase1);
     EOS_phase2 = LinearizedBarotropicEOS(p0_phase2, rho0_phase2, c0_phase2);
 
@@ -158,24 +155,10 @@ void TwoScaleCapillarity<dim>::update_geometry() {
                          {
                            mod_grad_alpha1_bar[cell] = std::sqrt(xt::sum(grad_alpha1_bar[cell]*grad_alpha1_bar[cell])());
 
-                           if(mod_grad_alpha1_bar[cell] > 0.0) {
-                             normal[cell] = grad_alpha1_bar[cell]/mod_grad_alpha1_bar[cell];
-                           }
-                           else {
-                             for(std::size_t d = 0; d < dim; ++d) {
-                               normal[cell][d] = nan("");
-                             }
-                           }
+                           normal[cell] = grad_alpha1_bar[cell]/(mod_grad_alpha1_bar[cell] + eps);
                          });
   samurai::update_ghost_mr(normal);
   H = -divergence(normal);
-  samurai::for_each_cell(mesh,
-                         [&](const auto& cell)
-                         {
-                           if(!std::isnan(H[cell])) {
-                             H[cell] = (H[cell] > 0) ? std::min(H[cell], Hmax) : std::max(H[cell], -Hmax);
-                           }
-                         });
 }
 
 
@@ -259,11 +242,10 @@ void TwoScaleCapillarity<dim>::init_variables() {
 
                            conserved_variables[cell][M1_INDEX] = (!std::isnan(rho1[cell])) ? alpha1[cell]*rho1[cell] : 0.0;
 
-                           //p2[cell]   = (alpha1_bar[cell] < 1.0 - eps) ? EOS_phase2.get_p0() : nan("");
-                           p2[cell]   = EOS_phase2.get_p0();
+                           p2[cell]   = (alpha1_bar[cell] < 1.0 - eps) ? EOS_phase2.get_p0() : nan("");
                            rho2[cell] = EOS_phase2.rho_value(p2[cell]);
 
-                           conserved_variables[cell][M2_INDEX] = alpha2[cell]*rho2[cell];
+                           conserved_variables[cell][M2_INDEX] = (!std::isnan(rho2[cell])) ? alpha2[cell]*rho2[cell] : 0.0;
 
                            conserved_variables[cell][M1_D_INDEX] = conserved_variables[cell][ALPHA1_D_INDEX]*EOS_phase1.get_rho0();
 
@@ -313,7 +295,9 @@ double TwoScaleCapillarity<dim>::get_max_lambda() const {
 template<std::size_t dim>
 void TwoScaleCapillarity<dim>::apply_relaxation() {
   // Apply relaxation with Newton method
-  const double tol = 1e-8;
+  const double tol    = 1e-8;
+  const double lambda = 0.9;
+
   std::size_t Newton_iter = 0;
   bool relaxation_applied = true;
   while(relaxation_applied == true) {
@@ -342,7 +326,7 @@ void TwoScaleCapillarity<dim>::apply_relaxation() {
                                               (p1[cell] - p2[cell])
                                             - sigma*H[cell];
 
-                             if(!std::isnan(F) && std::abs(F) > tol*EOS_phase1.get_p0() && alpha1_bar[cell] > eps && 1.0 - alpha1_bar[cell] > eps) {
+                             if(std::abs(F) > tol*EOS_phase1.get_p0() && alpha1_bar[cell] > eps && 1.0 - alpha1_bar[cell] > eps) {
                                relaxation_applied = true;
 
                                // Compute the derivative recalling that for a barotropic EOS dp/drho = c^2
@@ -353,8 +337,8 @@ void TwoScaleCapillarity<dim>::apply_relaxation() {
 
                                // Apply Newton method
                                const double dalpha1_bar = -F/dF;
-                               alpha1_bar[cell] += (dalpha1_bar < 0) ? std::max(dalpha1_bar, -0.9*alpha1_bar[cell])
-                                                                     : std::min(dalpha1_bar, 0.9*(1.0 - alpha1_bar[cell]));
+                               alpha1_bar[cell] += (dalpha1_bar < 0) ? std::max(dalpha1_bar, -lambda*alpha1_bar[cell])
+                                                                     : std::min(dalpha1_bar, lambda*(1.0 - alpha1_bar[cell]));
                              }
                            });
     if(Newton_iter > 100) {
@@ -472,17 +456,11 @@ void TwoScaleCapillarity<dim>::run() {
   double dx = samurai::cell_length(mesh[mesh_id_t::cells].max_level());
   double dt = cfl*dx/get_max_lambda();
 
-  // Routine for mesh adaptation
-  auto adapt = samurai::make_MRAdapt(mod_grad_alpha1_bar);
-
   // Start the loop
   std::size_t nsave = 0;
   std::size_t nt    = 0;
   double t          = 0.0;
   while(t != Tf) {
-    // AMR adaptation
-    adapt(1e-5, 0, conserved_variables, vel, p_bar, c, normal);
-
     t += dt;
     if(t > Tf) {
       dt += Tf - t;
@@ -494,14 +472,12 @@ void TwoScaleCapillarity<dim>::run() {
     // Apply the numerical scheme without relaxation
     samurai::update_ghost_mr(conserved_variables, vel, p_bar, c, mod_grad_alpha1_bar, normal);
     samurai::update_bc(conserved_variables, vel, p_bar, c, mod_grad_alpha1_bar, normal);
-    auto flux_conserved = flux(conserved_variables);
-    conserved_variables_np1.resize();
+    auto flux_conserved     = flux(conserved_variables);
     conserved_variables_np1 = conserved_variables - dt*flux_conserved;
 
     std::swap(conserved_variables.array(), conserved_variables_np1.array());
 
     // Update auxiliary useful fields which are not modified by relaxation
-    rho.resize();
     update_auxiliary_fields_pre_relaxation();
 
     // Compute updated time step
@@ -510,7 +486,6 @@ void TwoScaleCapillarity<dim>::run() {
 
     // Apply relaxation if desired, which will modify alpha1_bar and, consequently, for what
     // concerns next time step, rho_alpha1_bar and p_bar
-    alpha1_bar.resize();
     samurai::for_each_cell(mesh,
                            [&](const auto& cell)
                            {
@@ -521,13 +496,6 @@ void TwoScaleCapillarity<dim>::run() {
     }
 
     // Update auxiliary useful fields
-    alpha2_bar.resize();
-    alpha1.resize();
-    rho1.resize();
-    p1.resize();
-    alpha2.resize();
-    rho2.resize();
-    p2.resize();
     update_auxiliary_fields_post_relaxation();
     update_geometry();
 
