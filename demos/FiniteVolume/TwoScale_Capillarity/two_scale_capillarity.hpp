@@ -26,7 +26,7 @@ using namespace EquationData;
 template<std::size_t dim>
 class TwoScaleCapillarity {
 public:
-  using Config    = samurai::MRConfig<dim>;
+  using Config = samurai::MRConfig<dim>;
 
   TwoScaleCapillarity() = default; // Default constructor. This will do nothing
                                    // and basically will never be used
@@ -35,12 +35,9 @@ public:
                       const xt::xtensor_fixed<double, xt::xshape<dim>>& max_corner,
                       std::size_t min_level, std::size_t max_level,
                       double Tf_, double cfl_, std::size_t nfiles_ = 100,
-                      bool apply_relax_ = true);  // Class constrcutor with the arguments related
-                                                  // to the grid, to the physics and to the relaxation.
-                                                  // Maybe in the future,
-                                                  // we could think to add parameters related to EOS
-
-  bool check_apply_relaxation() const; // Check whether we applied relaxation or not
+                      bool apply_relax_ = true, bool mass_transfer_ = true);  // Class constrcutor with the arguments related
+                                                                              // to the grid, to the physics and to the relaxation.
+                                                                              // Maybe in the future, we could think to add parameters related to EOS
 
   void run(); // Function which actually executes the temporal loop
 
@@ -57,18 +54,20 @@ private:
   samurai::MRMesh<Config> mesh; // Variable to store the mesh
   using mesh_id_t = typename decltype(mesh)::mesh_id_t;
 
-  using Field        = samurai::Field<decltype(mesh), double, 7, false>;
+  using Field        = samurai::Field<decltype(mesh), double, EquationData::NVARS, false>;
   using Field_Scalar = samurai::Field<decltype(mesh), double, 1, false>;
   using Field_Vect   = samurai::Field<decltype(mesh), double, dim, false>;
 
   LinearizedBarotropicEOS EOS_phase1,
-                          EOS_phase2; // The two varaibles which take care of the
+                          EOS_phase2; // The two variables which take care of the
                                       // barotropic EOS to compute the speed of sound
 
   bool apply_relax; // Choose whether to apply or not the relaxation
 
   double Tf;  // Final time of the simulation
   double cfl; // Courant number of the simulation so as to compute the time step
+
+  bool mass_transfer; // Choose wheter to apply or not the mass transfer
 
   std::size_t nfiles; // Number of files desired for output
 
@@ -89,7 +88,9 @@ private:
                p_bar,
                c,
                mod_grad_alpha1_bar,
-               H;
+               H,
+               rho1d,
+               H_lim;
 
   Field_Vect vel,
              normal,
@@ -126,29 +127,22 @@ TwoScaleCapillarity<dim>::TwoScaleCapillarity(const xt::xtensor_fixed<double, xt
                                               const xt::xtensor_fixed<double, xt::xshape<dim>>& max_corner,
                                               std::size_t min_level, std::size_t max_level,
                                               double Tf_, double cfl_, std::size_t nfiles_,
-                                              bool apply_relax_):
+                                              bool apply_relax_, bool mass_transfer_):
   box(min_corner, max_corner), mesh(box, min_level, max_level, {true, true}),
-  apply_relax(apply_relax_), Tf(Tf_), cfl(cfl_), nfiles(nfiles_),
+  apply_relax(apply_relax_), Tf(Tf_), cfl(cfl_), mass_transfer(mass_transfer_), nfiles(nfiles_),
   gradient(samurai::make_gradient<decltype(alpha1_bar)>()),
   divergence(samurai::make_divergence<decltype(normal)>()),
   eps(1e-9), mod_grad_alpha1_bar_min(0.0) {
-    EOS_phase1 = LinearizedBarotropicEOS(p0_phase1, rho0_phase1, c0_phase1);
-    EOS_phase2 = LinearizedBarotropicEOS(p0_phase2, rho0_phase2, c0_phase2);
+    EOS_phase1 = LinearizedBarotropicEOS(EquationData::p0_phase1, EquationData::rho0_phase1, EquationData::c0_phase1);
+    EOS_phase2 = LinearizedBarotropicEOS(EquationData::p0_phase2, EquationData::rho0_phase2, EquationData::c0_phase2);
 
     std::cout << "Initializing variables " << std::endl;
     init_variables();
 }
 
 
-// Auxiliary routine to check whether we applied relaxation or not
-//
-template<std::size_t dim>
-bool TwoScaleCapillarity<dim>::check_apply_relaxation() const {
-  return apply_relax;
-}
-
-
 // Auxiliary routine to compute normals and curvature
+//
 template<std::size_t dim>
 void TwoScaleCapillarity<dim>::update_geometry() {
   samurai::update_ghost_mr(alpha1_bar);
@@ -177,7 +171,7 @@ void TwoScaleCapillarity<dim>::update_geometry() {
 template<std::size_t dim>
 void TwoScaleCapillarity<dim>::init_variables() {
   // Create conserved and auxiliary fields
-  conserved_variables = samurai::make_field<double, 7>("conserved", mesh);
+  conserved_variables = samurai::make_field<double, EquationData::NVARS>("conserved", mesh);
 
   rho        = samurai::make_field<double, 1>("rho", mesh);
   vel        = samurai::make_field<double, dim>("vel", mesh);
@@ -197,6 +191,9 @@ void TwoScaleCapillarity<dim>::init_variables() {
   normal              = samurai::make_field<double, dim>("normal", mesh);
 
   grad_alpha1_bar     = samurai::make_field<double, dim>("grad_alpha1_bar", mesh);
+
+  rho1d  = samurai::make_field<double, 1>("rho1d", mesh);
+  H_lim  = samurai::make_field<double, 1>("Hlim", mesh);
 
   // Declare some constant parameters associated to the grid and to the
   // initial state
@@ -226,6 +223,7 @@ void TwoScaleCapillarity<dim>::init_variables() {
                                             ((r < R) ? 1.0 : 0.0);
 
                            conserved_variables[cell][ALPHA1_D_INDEX] = 0.0;
+                           conserved_variables[cell][SIGMA_D_INDEX]  = 0.0;
 
                            alpha1_bar[cell] = w;
 
@@ -247,7 +245,7 @@ void TwoScaleCapillarity<dim>::init_variables() {
                          [&](const auto& cell)
                          {
                            p1[cell] = EOS_phase2.get_p0();
-                           p1[cell] += (alpha1_bar[cell] > 1.0 - eps) ? sigma/R : sigma*H[cell];
+                           p1[cell] += (alpha1_bar[cell] > 1.0 - eps) ? EquationData::sigma/R : EquationData::sigma*H[cell];
                            rho1[cell] = EOS_phase1.rho_value(p1[cell]);
 
                            conserved_variables[cell][M1_INDEX] = (!std::isnan(rho1[cell])) ? alpha1[cell]*rho1[cell] : 0.0;
@@ -289,7 +287,7 @@ double TwoScaleCapillarity<dim>::get_max_lambda() const {
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
                          {
-                           const double r = sigma*mod_grad_alpha1_bar[cell]/(rho[cell]*c[cell]*c[cell]);
+                           const double r = EquationData::sigma*mod_grad_alpha1_bar[cell]/(rho[cell]*c[cell]*c[cell]);
 
                            res = std::max(std::max(std::abs(vel[cell][0]) + c[cell]*(1.0 + 0.125*r),
                                                    std::abs(vel[cell][1]) + c[cell]*(1.0 + 0.125*r)),
@@ -297,6 +295,20 @@ double TwoScaleCapillarity<dim>::get_max_lambda() const {
                          });
 
   return res;
+}
+
+
+// Update auxiliary fields which are not modified by the relaxation
+//
+template<std::size_t dim>
+void TwoScaleCapillarity<dim>::update_auxiliary_fields_pre_relaxation() {
+  samurai::for_each_cell(mesh,
+                         [&](const auto& cell)
+                         {
+                           rho[cell] = conserved_variables[cell][M1_INDEX]
+                                     + conserved_variables[cell][M2_INDEX]
+                                     + conserved_variables[cell][M1_D_INDEX];
+                         });
 }
 
 
@@ -310,13 +322,17 @@ void TwoScaleCapillarity<dim>::apply_relaxation() {
 
   std::size_t Newton_iter = 0;
   bool relaxation_applied = true;
+  bool mass_transfer_NR   = mass_transfer; /*--- This value cna change during the Newton loop ,so we create a copy rather modyfing the original ---*/
   while(relaxation_applied == true) {
-    Newton_iter++;
     relaxation_applied = false;
+    Newton_iter++;
+
+    // Update fields affected by the nonlinear function for which we seek a zero
     samurai::for_each_cell(mesh,
                            [&](const auto& cell)
                            {
                              // Compute partial densities since alpha1_bar is potentially changed
+                             // in the relaxation during the Newton loop
                              alpha1[cell] = alpha1_bar[cell]*
                                             (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
                              rho1[cell]   = (alpha1[cell] > eps) ?
@@ -332,45 +348,160 @@ void TwoScaleCapillarity<dim>::apply_relaxation() {
                                             nan("");
                              p2[cell]     = EOS_phase2.pres_value(rho2[cell]);
 
-                             const double F = (1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*
-                                              (p1[cell] - p2[cell])
-                                            - sigma*H[cell];
+                             rho1d[cell]  = (conserved_variables[cell][M1_D_INDEX] > eps && conserved_variables[cell][ALPHA1_D_INDEX] > eps) ?
+                                            conserved_variables[cell][M1_D_INDEX]/conserved_variables[cell][ALPHA1_D_INDEX] : EquationData::rho0_phase1;
+                           });
 
+    // Recompute geometric quantities
+    update_geometry();
+
+    // Prepare for the mass transfer if desired
+    if(mass_transfer_NR) {
+      samurai::for_each_cell(mesh,
+                             [&](const auto& cell)
+                             {
+                               if(3.0/(EquationData::kappa*rho1d[cell])*rho1[cell]*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]) -
+                                  (1.0 - alpha1_bar[cell]) > 0.0 &&
+                                  alpha1_bar[cell] > 1e-2 && alpha1_bar[cell] < 1e-1 &&
+                                  -grad_alpha1_bar[cell][0]*conserved_variables[cell][RHO_U_INDEX]
+                                  -grad_alpha1_bar[cell][1]*conserved_variables[cell][RHO_V_INDEX] > 0.0) {
+                                  H_lim[cell] = std::min(H[cell], EquationData::Hmax);
+                                }
+                                else {
+                                  H_lim[cell] = H[cell];
+                                }
+                             });
+    }
+    else {
+      H_lim = H;
+    }
+    const decltype(H)& dH = H - H_lim;
+
+    // Perform the Newton step
+    samurai::for_each_cell(mesh,
+                           [&](const auto& cell)
+                           {
+                             // Compute the nonlinear function for which we seek the zero (basically the Laplace law)
+                             const double F = (1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*(p1[cell] - p2[cell])
+                                            - EquationData::sigma*H[cell];
+
+                             // Perform the relaxation only when really needed
                              if(std::abs(F) > tol*EOS_phase1.get_p0() && alpha1_bar[cell] > eps && 1.0 - alpha1_bar[cell] > eps) {
                                relaxation_applied = true;
 
-                               // Compute the derivative recalling that for a barotropic EOS dp/drho = c^2
-                               const double dF = -conserved_variables[cell][M1_INDEX]/(alpha1_bar[cell]*alpha1_bar[cell])*
-                                                  EOS_phase1.c_value(rho1[cell])*EOS_phase1.c_value(rho1[cell])
-                                                 -conserved_variables[cell][M2_INDEX]/((1.0 - alpha1_bar[cell])*(1.0 - alpha1_bar[cell]))*
-                                                  EOS_phase2.c_value(rho2[cell])*EOS_phase2.c_value(rho2[cell]);
+                               // Compute the derivative rw.r.t large scale volume fraction recalling that for a barotropic EOS dp/drho = c^2
+                               const double dF_dalpha1_bar = -conserved_variables[cell][M1_INDEX]/(alpha1_bar[cell]*alpha1_bar[cell])*
+                                                              EOS_phase1.c_value(rho1[cell])*EOS_phase1.c_value(rho1[cell])
+                                                             -conserved_variables[cell][M2_INDEX]/((1.0 - alpha1_bar[cell])*(1.0 - alpha1_bar[cell]))*
+                                                              EOS_phase2.c_value(rho2[cell])*EOS_phase2.c_value(rho2[cell]);
 
-                               // Apply Newton method
-                               const double dalpha1_bar_NR    = -F/dF;
-                               // Upper bound
+                               // Compute the psuedo time spte starting as initial guess from the ideal unmodified Newton method
                                double dtau_ov_epsilon = std::numeric_limits<double>::infinity();
-                               const double upper_denominator = 1.0/(1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*
-                                                                (F + lambda*(1.0 - alpha1_bar[cell])*dF);
-                               if(upper_denominator > 0.0) {
-                                 dtau_ov_epsilon = lambda*(1.0 - alpha1_bar[cell])/upper_denominator;
+
+                               if(dH[cell] > 0.0 && !std::isnan(rho1[cell])) {
+                                 // Bound preserving condition for m1
+                                 dtau_ov_epsilon = lambda*conserved_variables[cell][M1_INDEX]*(1.0 - alpha1_bar[cell])/(rho1[cell]*EquationData::sigma*dH[cell]);
+
+                                 // Bound preserving for the velocity
+                                 const double mom_dot_vel = (conserved_variables[cell][RHO_U_INDEX]*conserved_variables[cell][RHO_U_INDEX] +
+                                                             conserved_variables[cell][RHO_V_INDEX]*conserved_variables[cell][RHO_V_INDEX])/rho[cell];
+                                 const double fac = 3.0/(EquationData::kappa*rho1d[cell])*rho1[cell]*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]) - (1.0 - alpha1_bar[cell]);
+                                 double dtau_ov_epsilon_tmp = mom_dot_vel/(EquationData::Hmax*dH[cell]*fac*EquationData::sigma*EquationData::sigma);
+                                 dtau_ov_epsilon = std::min(dtau_ov_epsilon, dtau_ov_epsilon_tmp);
+
+                                 // Bound preserving for the small scale volume fraction
+                                 if(conserved_variables[cell][ALPHA1_D_INDEX] < 0.5) {
+                                   dtau_ov_epsilon_tmp = lambda*(0.5 - conserved_variables[cell][ALPHA1_D_INDEX])*(1.0 - alpha1_bar[cell])*rho1d[cell]/
+                                                         (rho1[cell]*EquationData::sigma*dH[cell]);
+
+                                   dtau_ov_epsilon = std::min(dtau_ov_epsilon, dtau_ov_epsilon_tmp);
+
+                                   if(conserved_variables[cell][ALPHA1_D_INDEX] > 0.0) {
+                                     dtau_ov_epsilon_tmp = conserved_variables[cell][ALPHA1_D_INDEX]*(1.0 - alpha1_bar[cell])*rho1d[cell]/
+                                                           (rho1[cell]*EquationData::sigma*dH[cell]);
+
+                                     dtau_ov_epsilon = std::min(dtau_ov_epsilon, dtau_ov_epsilon_tmp);
+                                   }
+                                 }
                                }
-                               //Lower bound
-                               const double lower_denominator = 1.0/(1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*
-                                                                (F - lambda*alpha1_bar[cell]*dF);
-                               if(lower_denominator < 0.0) {
-                                 dtau_ov_epsilon = std::min(dtau_ov_epsilon, -lambda*alpha1_bar[cell]/lower_denominator);
+
+                               // Bound preserving condition for large scale volume fraction
+                               const double dF_dalpha1d   = p2[cell] - p1[cell]
+                                                          + EOS_phase1.c_value(rho1[cell])*EOS_phase1.c_value(rho1[cell])*rho1[cell]
+                                                          - EOS_phase2.c_value(rho2[cell])*EOS_phase2.c_value(rho2[cell])*rho2[cell];
+                               const double dF_dm1        = EOS_phase1.c_value(rho1[cell])*EOS_phase1.c_value(rho1[cell])/alpha1_bar[cell];
+                               const double R             = dF_dalpha1d - dF_dm1;
+                               const double a             = rho1[cell]*EquationData::sigma*dH[cell]*R/((1.0 - alpha1_bar[cell])*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]));
+                               // Upper bound
+                               double b                   = (F + lambda*(1.0 - alpha1_bar[cell])*dF_dalpha1_bar)/(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+                               double D                   = b*b - 4.0*a*(-lambda*(1.0 - alpha1_bar[cell]));
+                               double dtau_ov_epsilon_tmp = std::numeric_limits<double>::infinity();
+                               if(D > 0.0 && (a > 0.0 || (a < 0.0 && b > 0.0))) {
+                                 dtau_ov_epsilon_tmp = (-b + std::sqrt(D))/(2.0*a);
                                }
-                               double dalpha1_bar;
+                               if(a == 0.0 && b > 0.0) {
+                                 dtau_ov_epsilon_tmp = lambda*(1.0 - alpha1_bar[cell])/b;
+                               }
+                               dtau_ov_epsilon = std::min(dtau_ov_epsilon, dtau_ov_epsilon_tmp);
+                               // Lower bound
+                               dtau_ov_epsilon_tmp = std::numeric_limits<double>::infinity();
+                               b                   = (F - lambda*alpha1_bar[cell]*dF_dalpha1_bar)/(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+                               D                   = b*b - 4.0*a*(lambda*alpha1_bar[cell]);
+                               if(D > 0.0 && (a < 0.0 || (a > 0.0 && b < 0.0))) {
+                                 dtau_ov_epsilon_tmp = (-b - std::sqrt(D))/(2.0*a);
+                               }
+                               if(a == 0.0 && b < 0.0) {
+                                 dtau_ov_epsilon_tmp = -lambda*alpha1_bar[cell]/b;
+                               }
+                               dtau_ov_epsilon = std::min(dtau_ov_epsilon, dtau_ov_epsilon_tmp);
+
+                               // Compute the effective variation of the variables
                                if(std::isinf(dtau_ov_epsilon)) {
-                                 dalpha1_bar = dalpha1_bar_NR;
+                                 // If we are in this branch we do not have mass transfer
+                                 // and we do not have other restrictions on the bounds of large scale volume fraction
+                                 alpha1_bar[cell] -= F/dF_dalpha1_bar;
                                }
                                else {
-                                 dalpha1_bar = dtau_ov_epsilon/(1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*F/
-                                               (1.0 - dtau_ov_epsilon*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*dF);
+                                 const double dm1 = -dtau_ov_epsilon*conserved_variables[cell][ALPHA1_D_INDEX]/
+                                                     (alpha1_bar[cell]*(1.0 - alpha1_bar[cell])*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]))*
+                                                     EquationData::sigma*dH[cell];
+
+                                 const double dalpha1_bar = dtau_ov_epsilon/(1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*(F - dm1*R)/
+                                                            (1.0 - dtau_ov_epsilon*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*dF_dalpha1_bar);
+
+                                 alpha1_bar[cell] += dalpha1_bar;
+                                 conserved_variables[cell][M1_INDEX] += dm1;
+                                 conserved_variables[cell][M1_D_INDEX] -= dm1;
+                                 conserved_variables[cell][ALPHA1_D_INDEX] -= dm1/rho1d[cell];
+                                 conserved_variables[cell][SIGMA_D_INDEX] -= 3.0*EquationData::Hmax*dm1/(EquationData::kappa*rho1d[cell]);
                                }
-                               alpha1_bar[cell] += dalpha1_bar;
+                               if(dH[cell] > 0.0) {
+                                 double fac = 0.0;
+                                 if(3.0/(EquationData::kappa*rho1d[cell])*rho1[cell]*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]) - (1.0 - alpha1_bar[cell]) > 0.0) {
+                                   fac = 3.0/(EquationData::kappa*rho1d[cell])*rho1[cell]*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]) - (1.0 - alpha1_bar[cell]);
+                                 }
+
+                                 double drho_fac = 0.0;
+                                 if(conserved_variables[cell][RHO_U_INDEX]*conserved_variables[cell][RHO_U_INDEX] +
+                                    conserved_variables[cell][RHO_V_INDEX]*conserved_variables[cell][RHO_V_INDEX] > 0.0) {
+                                      drho_fac = dtau_ov_epsilon*
+                                                 EquationData::sigma*EquationData::sigma*dH[cell]*fac*H_lim[cell]*rho[cell]/
+                                                 (conserved_variables[cell][RHO_U_INDEX]*conserved_variables[cell][RHO_U_INDEX] +
+                                                  conserved_variables[cell][RHO_V_INDEX]*conserved_variables[cell][RHO_V_INDEX]);
+                                 }
+
+                                 conserved_variables[cell][RHO_U_INDEX] -= drho_fac*conserved_variables[cell][RHO_U_INDEX];
+                                 conserved_variables[cell][RHO_V_INDEX] -= drho_fac*conserved_variables[cell][RHO_V_INDEX];
+                               }
                              }
                            });
+
+    // Stop the mass transfer after a sufficient time of Newton iterations for safety
+    if(mass_transfer_NR && Newton_iter > 30) {
+      mass_transfer_NR = false;
+    }
+
+    // Newton cycle diverged
     if(Newton_iter > 100) {
       std::cout << "Netwon method not converged" << std::endl;
       save(fs::current_path(), "FV_two_scale_capillarity", "_diverged",
@@ -378,25 +509,6 @@ void TwoScaleCapillarity<dim>::apply_relaxation() {
       exit(1);
     }
   }
-}
-
-
-// Update auxiliary fields which are not modified by the relaxation
-//
-template<std::size_t dim>
-void TwoScaleCapillarity<dim>::update_auxiliary_fields_pre_relaxation() {
-  samurai::for_each_cell(mesh,
-                         [&](const auto& cell)
-                         {
-                           rho[cell] = conserved_variables[cell][M1_INDEX]
-                                     + conserved_variables[cell][M2_INDEX]
-                                     + conserved_variables[cell][M1_D_INDEX];
-
-                           vel[cell][0] = conserved_variables[cell][RHO_U_INDEX]/
-                                          rho[cell];
-                           vel[cell][1] = conserved_variables[cell][RHO_V_INDEX]/
-                                          rho[cell];
-                         });
 }
 
 
@@ -408,6 +520,11 @@ void TwoScaleCapillarity<dim>::update_auxiliary_fields_post_relaxation() {
                          [&](const auto& cell)
                          {
                            conserved_variables[cell][RHO_ALPHA1_BAR_INDEX] = alpha1_bar[cell]*rho[cell];
+
+                           vel[cell][0] = conserved_variables[cell][RHO_U_INDEX]/
+                                          rho[cell];
+                           vel[cell][1] = conserved_variables[cell][RHO_V_INDEX]/
+                                          rho[cell];
 
                            alpha2_bar[cell] = 1.0 - alpha1_bar[cell];
 
@@ -473,7 +590,7 @@ void TwoScaleCapillarity<dim>::run() {
   const double dt_save = Tf / static_cast<double>(nfiles);
 
   // Auxiliary variables to save updated fields
-  auto conserved_variables_np1 = samurai::make_field<double, 7>("conserved_np1", mesh);
+  auto conserved_variables_np1 = samurai::make_field<double, EquationData::NVARS>("conserved_np1", mesh);
 
   // Create the flux variable
   auto flux = samurai::make_two_scale_capillarity<decltype(conserved_variables)>(vel, p_bar, c, normal, mod_grad_alpha1_bar);
@@ -491,9 +608,6 @@ void TwoScaleCapillarity<dim>::run() {
   std::size_t nt    = 0;
   double t          = 0.0;
   while(t != Tf) {
-    // AMR adaptation
-    //adapt(1e-5, 0, conserved_variables, vel, p_bar, c, normal);
-
     t += dt;
     if(t > Tf) {
       dt += Tf - t;
@@ -506,13 +620,11 @@ void TwoScaleCapillarity<dim>::run() {
     samurai::update_ghost_mr(conserved_variables, vel, p_bar, c, mod_grad_alpha1_bar, normal);
     samurai::update_bc(conserved_variables, vel, p_bar, c, mod_grad_alpha1_bar, normal);
     auto flux_conserved     = flux(conserved_variables);
-    //conserved_variables_np1.resize();
     conserved_variables_np1 = conserved_variables - dt*flux_conserved;
 
     std::swap(conserved_variables.array(), conserved_variables_np1.array());
 
     // Update auxiliary useful fields which are not modified by relaxation
-    //rho.resize();
     update_auxiliary_fields_pre_relaxation();
 
     // Compute updated time step
@@ -521,7 +633,6 @@ void TwoScaleCapillarity<dim>::run() {
 
     // Apply relaxation if desired, which will modify alpha1_bar and, consequently, for what
     // concerns next time step, rho_alpha1_bar and p_bar
-    //alpha1_bar.resize();
     samurai::for_each_cell(mesh,
                            [&](const auto& cell)
                            {
@@ -532,13 +643,6 @@ void TwoScaleCapillarity<dim>::run() {
     }
 
     // Update auxiliary useful fields
-    /*alpha2_bar.resize();
-    alpha1.resize();
-    rho1.resize();
-    p1.resize();
-    alpha2.resize();
-    rho2.resize();
-    p2.resize();*/
     update_auxiliary_fields_post_relaxation();
     update_geometry();
 

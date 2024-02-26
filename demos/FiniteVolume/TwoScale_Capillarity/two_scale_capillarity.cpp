@@ -20,12 +20,14 @@ int main(int argc, char* argv[]) {
 
   bool apply_relaxation = true;
 
+  bool mass_transfer = true;
+
   // Output parameters
   std::size_t nfiles = 100;
 
   // Create the instance of the class to perform the simulation
   auto TwoScaleCapillarity_Sim = TwoScaleCapillarity(min_corner, max_corner, min_level, max_level,
-                                                     Tf, cfl, nfiles, apply_relaxation);
+                                                     Tf, cfl, nfiles, apply_relaxation, mass_transfer);
 
   TwoScaleCapillarity_Sim.run();
 

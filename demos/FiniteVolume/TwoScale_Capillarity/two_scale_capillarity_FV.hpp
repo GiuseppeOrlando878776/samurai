@@ -4,6 +4,8 @@
 namespace EquationData {
   // Declare parameter related to surface tension coefficient
   static constexpr double sigma = 1.0;
+  static constexpr double kappa = 1.0;
+  static constexpr double Hmax  = 1e3;
 
   // Declare some parameters related to EOS.
   static constexpr double p0_phase1   = 1e5;
@@ -20,9 +22,13 @@ namespace EquationData {
   static constexpr std::size_t M2_INDEX             = 1;
   static constexpr std::size_t M1_D_INDEX           = 2;
   static constexpr std::size_t ALPHA1_D_INDEX       = 3;
-  static constexpr std::size_t RHO_ALPHA1_BAR_INDEX = 4;
-  static constexpr std::size_t RHO_U_INDEX          = 5;
-  static constexpr std::size_t RHO_V_INDEX          = 6;
+  static constexpr std::size_t SIGMA_D_INDEX        = 4;
+  static constexpr std::size_t RHO_ALPHA1_BAR_INDEX = 5;
+  static constexpr std::size_t RHO_U_INDEX          = 6;
+  static constexpr std::size_t RHO_V_INDEX          = 7;
+
+  // Save also the total number of (scalar) vairables
+  static constexpr std::size_t NVARS = 8;
 }
 
 
@@ -63,6 +69,7 @@ namespace samurai {
           res(M2_INDEX) *= velocity(d);
           res(M1_D_INDEX) *= velocity(d);
           res(ALPHA1_D_INDEX) *= velocity(d);
+          res(SIGMA_D_INDEX) *= velocity(d);
           res(RHO_ALPHA1_BAR_INDEX) *= velocity(d);
           res(RHO_U_INDEX) *= velocity(d);
           res(RHO_V_INDEX) *= velocity(d);
