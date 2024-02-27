@@ -7,19 +7,19 @@
 #include "eos.hpp"
 
 namespace EquationData {
-  static std::size_t dim = 1; /*--- Spatial dimension. It would be ideal to be able to get it
-                                    direclty from Field, but I need to move the definition of these indices
+  static constexpr std::size_t dim = 2; /*--- Spatial dimension. It would be ideal to be able to get it
+                                              direclty from Field, but I need to move the definition of these indices ---*/
 
   /*--- Declare suitable static variables for the sake of generalities in the indices ---*/
-  static std::size_t ALPHA1_INDEX         = 0;
-  static std::size_t ALPHA1_RHO1_INDEX    = 1;
-  static std:.size_t ALPHA1_RHO1_U1_INDEX = 2;
-  static std::size_t ALPHA1_RHO1_E1_INDEX = 2 + dim;
-  static std::size_t ALPHA2_RHO2_INDEX    = ALPHA1_RHO1_E1_INDEX + 1;
-  static std::size_t ALPHA2_RHO2_U2_INDEX = ALPHA2_RHO2_INDEX + 1;
-  static std::size_t ALPHA1_RHO2_E2_INDEX = ALPHA2_RHO2_U2_INDEX + dim;
+  static constexpr std::size_t ALPHA1_INDEX         = 0;
+  static constexpr std::size_t ALPHA1_RHO1_INDEX    = 1;
+  static constexpr std::size_t ALPHA1_RHO1_U1_INDEX = 2;
+  static constexpr std::size_t ALPHA1_RHO1_E1_INDEX = 2 + dim;
+  static constexpr std::size_t ALPHA2_RHO2_INDEX    = ALPHA1_RHO1_E1_INDEX + 1;
+  static constexpr std::size_t ALPHA2_RHO2_U2_INDEX = ALPHA2_RHO2_INDEX + 1;
+  static constexpr std::size_t ALPHA2_RHO2_E2_INDEX = ALPHA2_RHO2_U2_INDEX + dim;
 
-  static std::size_t NVARS = ALPHA1_RHO2_E2_INDEX + 1;
+  static constexpr std::size_t NVARS = ALPHA2_RHO2_E2_INDEX + 1;
 
   // Parameters related to the EOS for the two phases
   static constexpr double gamma_1    = 1.4;
@@ -32,6 +32,8 @@ namespace EquationData {
 }
 
 namespace samurai {
+  using namespace EquationData;
+
   /**
     * Generic class to compute the flux between a left and right state
     */
@@ -40,47 +42,35 @@ namespace samurai {
   public:
     // Definitions and sanity checks
     static constexpr std::size_t field_size        = Field::size;
-    static_assert(field_size == EquationData::NVARS, "The number of elements in the state does not correpsond to the number of equations")
-    static_assert(Field::dim == EquationData::dim, "The spatial dimesions do not match")
+    static_assert(field_size == EquationData::NVARS, "The number of elements in the state does not correpsond to the number of equations");
+    static_assert(Field::dim == EquationData::dim, "The spatial dimesions do not match");
     static constexpr std::size_t output_field_size = field_size;
     static constexpr std::size_t stencil_size      = 2;
 
     using cfg = FluxConfig<SchemeType::NonLinear, output_field_size, stencil_size, Field>;
 
-    // Routines declaration
-    Flux() = default; // Default constructor
+    Flux(const EOS<>& EOS_phase1, const EOS<>& EOS_phase2); // Construction which accepts in inputs the equations of stae of the two phases
 
-    Flux(const EOS& EOS_phase1, const EOS& EOS_phase2); // Construction which accepts in inputs the equations of stae of the two phases
-
-    template<class State>
-    FluxValue<cfg> evaluate_continuos_flux(const State& q, std::size_t curr_d = 0); // Evaluate the 'continuous' flux for the state q along direction curr_d
-
-    template<class State>
-    virtual FluxValue<cfg> compute_discrete_flux(const State& qL, const State& qR, std::size_t curr_d = 0) = 0; // Compute the flux along direction curr_d (curr_d < dim)
-                                                                                                                // This is a pure virtual function and it is the one
-                                                                                                                // has to implement ot have its own flux.
-
-    decltype(make_flux_based_scheme(FluxDefinition<cfg>)) make_flux(); // Compute the flux over all cells
+    FluxValue<cfg> evaluate_continuos_flux(const auto& q, const std::size_t curr_d = 0); // Evaluate the 'continuous' flux for the state q along direction curr_d
 
   protected:
-    EOS& phase1;
-    EOS& phase2;
-  }
+    const EOS<>& phase1; // Pass it by reference because pure virtual
+    const EOS<>& phase2; // Pass it by reference because pure virtual
+  };
 
 
   // Class constructor in order to be able to work with the equation of state
   //
   template<class Field>
-  Flux<Field>::Flux(const EOS& EOS_phase1, const EOS& EOS_phase2): phase1(EOS_phase1), phase2(EOS_phase2) {}
+  Flux<Field>::Flux(const EOS<>& EOS_phase1, const EOS<>& EOS_phase2): phase1(EOS_phase1), phase2(EOS_phase2) {}
 
 
   // Evaluate the 'continuous flux'
   //
   template<class Field>
-  template<class State>
-  FluxValue<cfg> Flux<Field>::evaluate_continuos_flux(const State& q, std::size_t curr_d = 0) {
+  FluxValue<typename Flux<Field>::cfg> Flux<Field>::evaluate_continuos_flux(const auto& q, const std::size_t curr_d) {
     // Sanity check in terms of dimensions
-    static_assert(curr_d < EquationData::dim, "The spatial dimesion of the problem is lower than the direction required for the flux")
+    assert(curr_d < EquationData::dim);
 
     FluxValue<cfg> res = q;
 
@@ -115,7 +105,7 @@ namespace samurai {
       e1 -= 0.5*(q(ALPHA2_RHO2_U2_INDEX + d)/q(ALPHA2_RHO2_INDEX))*(q(ALPHA2_RHO2_U2_INDEX + d)/q(ALPHA2_RHO2_INDEX));
     }
     const auto pres2  = phase2.pres_value(rho2, e2);
-    const auto vel2_d = q(ALPHA2_RHO1_U2_INDEX + curr_d)/q(ALPHA2_RHO2_INDEX);
+    const auto vel2_d = q(ALPHA2_RHO2_U2_INDEX + curr_d)/q(ALPHA2_RHO2_INDEX);
 
     // Compute the flux for the equations "associated" to phase 2
     res(ALPHA2_RHO2_INDEX) *= vel2_d;
@@ -125,23 +115,97 @@ namespace samurai {
         res(ALPHA2_RHO2_U2_INDEX + d) *= vel2_d;
       }
     }
-    res(ALPHA1_RHO2_U2_INDEX + curr_d) += alpha2*pres2;
-    res(ALPHA1_RHO2_E2_INDEX) *= vel2_d;
-    res(ALPHA1_RHO2_E2_INDEX) += alpha2*pres2*vel2_d;
+    res(ALPHA2_RHO2_U2_INDEX + curr_d) += alpha2*pres2;
+    res(ALPHA2_RHO2_E2_INDEX) *= vel2_d;
+    res(ALPHA2_RHO2_E2_INDEX) += alpha2*pres2*vel2_d;
 
     return res;
   }
 
 
-  // Implement the contribution of the discrete flux for all the cells in the mesh.
-  // It is evident that 'compute_discrete_flux' has to be overriden...
+  /**
+    * Implementation of a Rusanov flux
+    */
+  template<class Field>
+  class RusanovFlux: public Flux<Field> {
+  public:
+    RusanovFlux(const EOS<>& EOS_phase1, const EOS<>& EOS_phase2); // Construction which accepts in inputs the equations of stae of the two phases
+
+    FluxValue<typename Flux<Field>::cfg> compute_discrete_flux(const auto& qL, const auto& qR, const std::size_t curr_d = 0); // Rusanov flux along direction d
+
+    auto make_flux(); // Compute the flux over all cells
+  };
+
+
+  // Constructor derived from base class
   //
   template<class Field>
-  auto Flux<Field>::make_flux() {
-    FluxDefinition<cfg> discrete_flux;
+  RusanovFlux<Field>::RusanovFlux(const EOS<>& EOS_phase1, const EOS<>& EOS_phase2): Flux<Field>(EOS_phase1, EOS_phase2) {}
+
+
+  // Implementation of a Rusanov flux
+  //
+  template<class Field>
+  FluxValue<typename Flux<Field>::cfg> RusanovFlux<Field>::compute_discrete_flux(const auto& qL, const auto& qR, std::size_t curr_d) {
+    // Left state phase 1
+    const auto vel1L_d = qL(ALPHA1_RHO1_U1_INDEX + curr_d)/qL(ALPHA1_RHO1_INDEX);
+    const auto rho1L   = qL(ALPHA1_RHO1_INDEX)/qL(ALPHA1_INDEX);
+    auto e1L           = qL(ALPHA1_RHO1_E1_INDEX)/qL(ALPHA1_RHO1_INDEX);
+    for(std::size_t d = 0; d < EquationData::dim; ++d) {
+      e1L -= 0.5*(qL(ALPHA1_RHO1_U1_INDEX + d)/qL(ALPHA1_RHO1_INDEX))*(qL(ALPHA1_RHO1_U1_INDEX + d)/qL(ALPHA1_RHO1_INDEX));
+    }
+    const auto pres1L  = this->phase1.pres_value(rho1L, e1L);
+    const auto c1L     = this->phase1.c_value(rho1L, pres1L);
+
+    // Left state phase 2
+    const auto vel2L_d = qL(ALPHA2_RHO2_U2_INDEX + curr_d)/qL(ALPHA2_RHO2_INDEX);
+    const auto rho2L   = qL(ALPHA2_RHO2_INDEX)/(1.0 - qL(ALPHA1_INDEX));
+    auto e2L           = qL(ALPHA2_RHO2_E2_INDEX)/qL(ALPHA2_RHO2_INDEX);
+    for(std::size_t d = 0; d < EquationData::dim; ++d) {
+      e2L -= 0.5*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX))*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX));
+    }
+    const auto pres2L  = this->phase2.pres_value(rho2L, e2L);
+    const auto c2L     = this->phase2.c_value(rho2L, pres2L);
+
+    // Right state phase 1
+    const auto vel1R_d = qR(ALPHA1_RHO1_U1_INDEX + curr_d)/qR(ALPHA1_RHO1_INDEX);
+    const auto rho1R   = qR(ALPHA1_RHO1_INDEX)/qR(ALPHA1_INDEX);
+    auto e1R           = qR(ALPHA1_RHO1_E1_INDEX)/qR(ALPHA1_RHO1_INDEX);
+    for(std::size_t d = 0; d < EquationData::dim; ++d) {
+      e1R -= 0.5*(qR(ALPHA1_RHO1_U1_INDEX + d)/qR(ALPHA1_RHO1_INDEX))*(qR(ALPHA1_RHO1_U1_INDEX + d)/qR(ALPHA1_RHO1_INDEX));
+    }
+    const auto pres1R  = this->phase1.pres_value(rho1R, e1R);
+    const auto c1R     = this->phase1.c_value(rho1R, pres1R);
+
+    // Right state phase 2
+    const auto vel2R_d = qR(ALPHA2_RHO2_U2_INDEX + curr_d)/qR(ALPHA2_RHO2_INDEX);
+    const auto rho2R   = qR(ALPHA2_RHO2_INDEX)/(1.0 - qR(ALPHA1_INDEX));
+    auto e2R           = qR(ALPHA2_RHO2_E2_INDEX)/qR(ALPHA2_RHO2_INDEX);
+    for(std::size_t d = 0; d < EquationData::dim; ++d) {
+      e2R -= 0.5*(qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX))*(qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX));
+    }
+    const auto pres2R  = this->phase2.pres_value(rho2R, e2R);
+    const auto c2R     = this->phase2.c_value(rho2R, pres2R);
+
+
+    const auto lambda = std::max(std::max(std::max(std::abs(vel1L_d + c1L), std::abs(vel1L_d - c1L)),
+                                          std::max(std::abs(vel1R_d + c1R), std::abs(vel1R_d - c1R))),
+                                 std::max(std::max(std::abs(vel2L_d + c2L), std::abs(vel2L_d - c2L)),
+                                          std::max(std::abs(vel2R_d + c2R), std::abs(vel2R_d - c2R))));
+
+    return 0.5*(this->evaluate_continuos_flux(qL) + this->evaluate_continuos_flux(qR)) - // centered contribution
+           0.5*lambda*(qR - qL); // upwinding contribution
+  }
+
+
+  // Implement the contribution of the discrete flux for all the cells in the mesh.
+  //
+  template<class Field>
+  auto RusanovFlux<Field>::make_flux() {
+    FluxDefinition<typename Flux<Field>::cfg> discrete_flux;
 
     // Perform the loop over each dimension to compute the flux contribution
-    static_for<0, dim>::apply(
+    static_for<0, EquationData::dim>::apply(
       [&](auto integral_constant_d)
       {
         static constexpr int d = decltype(integral_constant_d)::value;
@@ -163,82 +227,6 @@ namespace samurai {
     return make_flux_based_scheme(discrete_flux);
   }
 
-
-  /**
-    * Implementation of a Rusanov flux
-    */
-  template<class Field>
-  class RusanovFlux: public Flux {
-    RusanovFlux() = default; // Default constructor
-
-    RusanovFlux(const RusanovFlux&) = default; // Default copy-constructor
-
-    RusanovFlux(const EOS& EOS_phase1, const EOS& EOS_phase2); // Construction which accepts in inputs the equations of stae of the two phases
-
-    template<class State>
-    virtual Field compute_discrete_flux(const State& qL, const State& qR, std::size_t curr_d = 0) override; // Rusanov flux along direction d
-  };
-
-
-  // Constructor derived from base class
-  //
-  template<class Field>
-  RusanovFlux<Field>::RusanovFlux(const EOS& EOS_phase1, const EOS& EOS_phase2): Flux(EOS_phase1, EOS_phase2) {}
-
-
-  // Implementation of a Rusanov flux
-  //
-  template<class Field>
-  template<class State>
-  FluxValue<cfg> RusanovFlux<Field>::compute_discrete_flux(const State& qL, const State& qR, std::size_t curr_d) {
-    // Left state phase 1
-    const auto vel1L_d = qL(ALPHA1_RHO1_U1_INDEX + curr_d)/qL(ALPHA1_RHO1_INDEX);
-    const auto rho1L   = qL(ALPHA1_RHO1_INDEX)/qL(ALPHA1_INDEX);
-    auto e1L           = qL(ALPHA1_RHO1_E1_INDEX)/qL(ALPHA1_RHO1_INDEX);
-    for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e1L -= 0.5*(qL(ALPHA1_RHO1_U1_INDEX + d)/qL(ALPHA1_RHO1_INDEX))*(qL(ALPHA1_RHO1_U1_INDEX + d)/qL(ALPHA1_RHO1_INDEX));
-    }
-    const auto pres1L  = phase1.pres_value(rho1L, e1L);
-    const auto c1L     = phase1.c_value(rho1L, pres1L);
-
-    // Left state phase 2
-    const auto vel2L_d = qL(ALPHA2_RHO2_U2_INDEX + curr_d)/qL(ALPHA2_RHO2_INDEX);
-    const auto rho2L   = qL(ALPHA2_RHO2_INDEX)/(1.0 - qL(ALPHA1_INDEX));
-    auto e2L           = qL(ALPHA2_RHO2_E2_INDEX)/qL(ALPHA2_RHO2_INDEX);
-    for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e2L -= 0.5*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX))*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX));
-    }
-    const auto pres2L  = phase2.pres_value(rho2L, e2L);
-    const auto c2L     = phase2.c_value(rho2L, pres2L);
-
-    // Right state phase 1
-    const auto vel1R_d = qR(ALPHA1_RHO1_U1_INDEX + curr_d)/qR(ALPHA1_RHO1_INDEX);
-    const auto rho1R   = qR(ALPHA1_RHO1_INDEX)/qR(ALPHA1_INDEX);
-    auto e1R           = qR(ALPHA1_RHO1_E1_INDEX)/qR(ALPHA1_RHO1_INDEX);
-    for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e1R -= 0.5*(qR(ALPHA1_RHO1_U1_INDEX + d)/qR(ALPHA1_RHO1_INDEX))*(qR(ALPHA1_RHO1_U1_INDEX + d)/qR(ALPHA1_RHO1_INDEX));
-    }
-    const auto pres1R  = phase1.pres_value(rho1L, e1L);
-    const auto c1R     = phase1.c_value(rho1L, pres1L);
-
-    // Right state phase 2
-    const auto vel2R_d = qR(ALPHA2_RHO2_U2_INDEX + curr_d)/qR(ALPHA2_RHO2_INDEX);
-    const auto rho2R   = qR(ALPHA2_RHO2_INDEX)/(1.0 - qR(ALPHA1_INDEX));
-    auto e2R           = qR(ALPHA2_RHO2_E2_INDEX)/qR(ALPHA2_RHO2_INDEX);
-    for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e2R -= 0.5*(qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX))*(qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX));
-    }
-    const auto pres2R  = phase2.pres_value(rho2R, e2R);
-    const auto c2R     = phase2.c_value(rho2R, pres2R);
-
-
-    const auto lambda = std::max(std::max(std::abs(vel1L_d + c1L), std::abs(vel1L_d - c1L)),
-                                 std::max(std::abs(vel1R_d + c1R), std::abs(vel1R_d - c1R))
-                                 std::max(std::abs(vel2L_d + c2L), std::abs(vel2L_d - c2L)),
-                                 std::max(std::abs(vel2R_d + c2R), std::abs(vel2R_d - c2R)));
-
-    return 0.5*(evaluate_continuos_flux(qL) + evaluate_continuos_flux(qR)) - // centered contribution
-           0.5*lambda*(qR - qL); // upwinding contribution
-  }
-
 } // end namespace samurai
+
+#endif

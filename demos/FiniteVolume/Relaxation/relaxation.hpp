@@ -64,11 +64,11 @@ private:
   Field conserved_variables; // The variable which stores the conserved variables,
                              // namely the varialbes for which we solve a PDE system
 
-  const samurai::RusanovFlux<Field> numerical_flux; // function to compute the numerical flux
-                                                    // (this is necessary to call 'make_flux')
+  const SG_EOS<> EOS_phase1; // Equation of state of phase 1
+  const SG_EOS<> EOS_phase2; // Equation of state of phase 2
 
-  const SG_EOS EOS_phase1; // Equation of state of phase 1
-  const SG_EOS EOS_phase2; // Equation of state of phase 2
+  samurai::RusanovFlux<Field> numerical_flux; // function to compute the numerical flux
+                                              // (this is necessary to call 'make_flux')
 
   // Now we declare a bunch of fields which depend from the state, but it is useful
   // to have it for the output
@@ -99,13 +99,12 @@ template<std::size_t dim>
 Relaxation<dim>::Relaxation(const xt::xtensor_fixed<double, xt::xshape<dim>>& min_corner,
                             const xt::xtensor_fixed<double, xt::xshape<dim>>& max_corner,
                             std::size_t min_level, std::size_t max_level,
-                            double Tf_, double cfl_, std::size_t nfiles_,):
+                            double Tf_, double cfl_, std::size_t nfiles_):
   box(min_corner, max_corner), mesh(box, min_level, max_level, {true, true}),
   Tf(Tf_), cfl(cfl_), nfiles(nfiles_),
   EOS_phase1(EquationData::gamma_1, EquationData::pi_infty_1, EquationData::q_infty_1),
-  EOS_phase2(EquationData::gamma_2, EquationData::pi_infty_2, EquationData::q_infty_2) {
-    numerical_flux = RusanovFlux(EOS_phase1, EOS_phase2);
-
+  EOS_phase2(EquationData::gamma_2, EquationData::pi_infty_2, EquationData::q_infty_2),
+  numerical_flux(EOS_phase1, EOS_phase2) {
     init_variables();
 }
 
@@ -160,7 +159,7 @@ void Relaxation<dim>::init_variables() {
                            p1[cell] = EOS_phase1.pres_value(rho1[cell], e1);
                            c1[cell] = EOS_phase1.c_value(rho1[cell], p1[cell]);
 
-                           rho2[cell]    = conserved_variables[cell][ALPHA2_RHO2_INDEX]/(1.0 - conserved_variables[cell][ALPHA2_INDEX]);
+                           rho2[cell]    = conserved_variables[cell][ALPHA2_RHO2_INDEX]/(1.0 - conserved_variables[cell][ALPHA1_INDEX]);
                            vel2[cell][0] = conserved_variables[cell][ALPHA2_RHO2_U2_INDEX]/conserved_variables[cell][ALPHA2_RHO2_INDEX];
                            vel2[cell][1] = conserved_variables[cell][ALPHA2_RHO2_U2_INDEX + 1]/conserved_variables[cell][ALPHA2_RHO2_INDEX];
                            auto e2 = conserved_variables[cell][ALPHA2_RHO2_E2_INDEX];
@@ -180,16 +179,16 @@ void Relaxation<dim>::init_variables() {
 // Compute the estimate of the maximum eigenvalue for CFL condition
 //
 template<std::size_t dim>
-double TwoScale<dim>::get_max_lambda() const {
+double Relaxation<dim>::get_max_lambda() const {
   double res = 0.0;
 
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
                          {
-                           res = std::max(std::max(std::abs(vel1[cell][0]) + c1[cell],
-                                                   std::abs(vel2[cell][0]) + c2[cell]),
-                                          std::max(std::abs(vel1[cell][1]) + c1[cell],
-                                                   std::abs(vel2[cell][1]) + c2[cell]),
+                           res = std::max(std::max(std::max(std::abs(vel1[cell][0]) + c1[cell],
+                                                            std::abs(vel2[cell][0]) + c2[cell]),
+                                                   std::max(std::abs(vel1[cell][1]) + c1[cell],
+                                                            std::abs(vel2[cell][1]) + c2[cell])),
                                           res);
                          });
 
@@ -217,7 +216,7 @@ void Relaxation<dim>::update_auxiliary_fields() {
                            p1[cell] = EOS_phase1.pres_value(rho1[cell], e1);
                            c1[cell] = EOS_phase1.c_value(rho1[cell], p1[cell]);
 
-                           rho2[cell]    = conserved_variables[cell][ALPHA2_RHO2_INDEX]/(1.0 - conserved_variables[cell][ALPHA2_INDEX]);
+                           rho2[cell]    = conserved_variables[cell][ALPHA2_RHO2_INDEX]/(1.0 - conserved_variables[cell][ALPHA1_INDEX]);
                            vel2[cell][0] = conserved_variables[cell][ALPHA2_RHO2_U2_INDEX]/conserved_variables[cell][ALPHA2_RHO2_INDEX];
                            vel2[cell][1] = conserved_variables[cell][ALPHA2_RHO2_U2_INDEX + 1]/conserved_variables[cell][ALPHA2_RHO2_INDEX];
                            auto e2 = conserved_variables[cell][ALPHA2_RHO2_E2_INDEX];
@@ -270,11 +269,11 @@ void Relaxation<dim>::run() {
   auto conserved_variables_np1 = samurai::make_field<double, EquationData::NVARS>("conserved_np1", mesh);
 
   // Create the flux variable
-  auto flux = numerical_flux.make_flux<decltype(conserved_variables)>;
+  auto flux = numerical_flux.make_flux();
 
   // Save the initial condition
   const std::string suffix_init = (nfiles != 1) ? "_ite_0" : "";
-  save(path, filename, suffix_init, conserved_variables, rho, p, vel, rho1, p1, c1, rho2, p2, c2);
+  save(path, filename, suffix_init, conserved_variables, rho, p, vel1, rho1, p1, c1, vel2, rho2, p2, c2);
 
   // Set initial time step
   using mesh_id_t = typename decltype(mesh)::mesh_id_t;
@@ -309,7 +308,7 @@ void Relaxation<dim>::run() {
     // Save the results
     if(t >= static_cast<double>(nsave + 1) * dt_save || t == Tf) {
       const std::string suffix = (nfiles != 1) ? fmt::format("_ite_{}", ++nsave) : "";
-      save(path, filename, suffix, conserved_variables, vel, alpha1_bar, alpha1, p_bar, c, rho1, rho2);
+      save(path, filename, suffix, conserved_variables, rho, p, vel1, rho1, p1, c1, vel2, rho2, p2, c2);
     }
   }
 }

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(two_scale)
+project(relaxation)
 
 find_package(samurai)
 find_package(CLI11)
@@ -14,5 +14,5 @@ endif()
 
 set(CMAKE_CXX_STANDARD 17)
 
-add_executable(two_scale two_scale.cpp)
-target_link_libraries(two_scale samurai::samurai CLI11::CLI11)
+add_executable(relaxation_Rusanov main.cpp)
+target_link_libraries(relaxation_Rusanov samurai::samurai CLI11::CLI11)
