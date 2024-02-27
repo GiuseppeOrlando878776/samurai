@@ -20,6 +20,15 @@ namespace EquationData {
   static std::size_t ALPHA1_RHO2_E2_INDEX = ALPHA2_RHO2_U2_INDEX + dim;
 
   static std::size_t NVARS = ALPHA1_RHO2_E2_INDEX + 1;
+
+  // Parameters related to the EOS for the two phases
+  static constexpr double gamma_1    = 1.4;
+  static constexpr double pi_infty_1 = 0.0;
+  static constexpr double q_infty_1  = 0.0;
+
+  static constexpr double gamma_2    = 1.4;
+  static constexpr double pi_infty_2 = 0.0;
+  static constexpr double q_infty_2  = 0.0;
 }
 
 namespace samurai {
@@ -80,7 +89,7 @@ namespace samurai {
     const auto rho1   = q(ALPHA1_RHO1_INDEX)/alpha1;
     auto e1           = q(ALPHA1_RHO1_E1_INDEX)/q(ALPHA1_RHO1_INDEX);
     for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e1 -= 0.5*q(ALPHA1_RHO1_U1_INDEX + d)/q(ALPHA1_RHO1_INDEX);
+      e1 -= 0.5*(q(ALPHA1_RHO1_U1_INDEX + d)/q(ALPHA1_RHO1_INDEX))*(q(ALPHA1_RHO1_U1_INDEX + d)/q(ALPHA1_RHO1_INDEX));
     }
     const auto pres1  = phase1.pres_value(rho1, e1);
     const auto vel1_d = q(ALPHA1_RHO1_U1_INDEX + curr_d)/q(ALPHA1_RHO1_INDEX);
@@ -103,7 +112,7 @@ namespace samurai {
     const auto rho2   = q(ALPHA2_RHO2_INDEX)/alpha2;
     auto e2           = q(ALPHA2_RHO2_E2_INDEX)/q(ALPHA2_RHO2_INDEX);
     for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e1 -= 0.5*q(ALPHA2_RHO2_U2_INDEX + d)/q(ALPHA2_RHO2_INDEX);
+      e1 -= 0.5*(q(ALPHA2_RHO2_U2_INDEX + d)/q(ALPHA2_RHO2_INDEX))*(q(ALPHA2_RHO2_U2_INDEX + d)/q(ALPHA2_RHO2_INDEX));
     }
     const auto pres2  = phase2.pres_value(rho2, e2);
     const auto vel2_d = q(ALPHA2_RHO1_U2_INDEX + curr_d)/q(ALPHA2_RHO2_INDEX);
@@ -187,7 +196,7 @@ namespace samurai {
     const auto rho1L   = qL(ALPHA1_RHO1_INDEX)/qL(ALPHA1_INDEX);
     auto e1L           = qL(ALPHA1_RHO1_E1_INDEX)/qL(ALPHA1_RHO1_INDEX);
     for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e1L -= 0.5*qL(ALPHA1_RHO1_U1_INDEX + d)/qL(ALPHA1_RHO1_INDEX);
+      e1L -= 0.5*(qL(ALPHA1_RHO1_U1_INDEX + d)/qL(ALPHA1_RHO1_INDEX))*(qL(ALPHA1_RHO1_U1_INDEX + d)/qL(ALPHA1_RHO1_INDEX));
     }
     const auto pres1L  = phase1.pres_value(rho1L, e1L);
     const auto c1L     = phase1.c_value(rho1L, pres1L);
@@ -197,7 +206,7 @@ namespace samurai {
     const auto rho2L   = qL(ALPHA2_RHO2_INDEX)/(1.0 - qL(ALPHA1_INDEX));
     auto e2L           = qL(ALPHA2_RHO2_E2_INDEX)/qL(ALPHA2_RHO2_INDEX);
     for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e2L -= 0.5*qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX);
+      e2L -= 0.5*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX))*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX));
     }
     const auto pres2L  = phase2.pres_value(rho2L, e2L);
     const auto c2L     = phase2.c_value(rho2L, pres2L);
@@ -207,7 +216,7 @@ namespace samurai {
     const auto rho1R   = qR(ALPHA1_RHO1_INDEX)/qR(ALPHA1_INDEX);
     auto e1R           = qR(ALPHA1_RHO1_E1_INDEX)/qR(ALPHA1_RHO1_INDEX);
     for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e1R -= 0.5*qR(ALPHA1_RHO1_U1_INDEX + d)/qR(ALPHA1_RHO1_INDEX);
+      e1R -= 0.5*(qR(ALPHA1_RHO1_U1_INDEX + d)/qR(ALPHA1_RHO1_INDEX))*(qR(ALPHA1_RHO1_U1_INDEX + d)/qR(ALPHA1_RHO1_INDEX));
     }
     const auto pres1R  = phase1.pres_value(rho1L, e1L);
     const auto c1R     = phase1.c_value(rho1L, pres1L);
@@ -217,7 +226,7 @@ namespace samurai {
     const auto rho2R   = qR(ALPHA2_RHO2_INDEX)/(1.0 - qR(ALPHA1_INDEX));
     auto e2R           = qR(ALPHA2_RHO2_E2_INDEX)/qR(ALPHA2_RHO2_INDEX);
     for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e2R -= 0.5*qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX);
+      e2R -= 0.5*(qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX))*(qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX));
     }
     const auto pres2R  = phase2.pres_value(rho2R, e2R);
     const auto c2R     = phase2.c_value(rho2R, pres2R);
