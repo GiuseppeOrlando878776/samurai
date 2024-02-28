@@ -54,8 +54,8 @@ namespace samurai {
     FluxValue<cfg> evaluate_continuos_flux(const auto& q, const std::size_t curr_d = 0); // Evaluate the 'continuous' flux for the state q along direction curr_d
 
   protected:
-    const EOS<>& phase1; // Pass it by reference because pure virtual
-    const EOS<>& phase2; // Pass it by reference because pure virtual
+    const EOS<>& phase1; // Pass it by reference because pure virtual (not so nice, maybe moving to pointers)
+    const EOS<>& phase2; // Pass it by reference because pure virtual (not so nice, maybe moving to pointers)
   };
 
 
@@ -202,6 +202,97 @@ namespace samurai {
   //
   template<class Field>
   auto RusanovFlux<Field>::make_flux() {
+    FluxDefinition<typename Flux<Field>::cfg> discrete_flux;
+
+    // Perform the loop over each dimension to compute the flux contribution
+    static_for<0, EquationData::dim>::apply(
+      [&](auto integral_constant_d)
+      {
+        static constexpr int d = decltype(integral_constant_d)::value;
+
+        // Compute now the "discrete" flux function
+        discrete_flux[d].flux_function = [&](auto& cells, Field& field)
+                                         {
+                                           const auto& left  = cells[0];
+                                           const auto& right = cells[1];
+
+                                           const auto& qL = field[left];
+                                           const auto& qR = field[right];
+
+                                           return compute_discrete_flux(qL, qR, d);
+                                         };
+      }
+    );
+
+    return make_flux_based_scheme(discrete_flux);
+  }
+
+
+
+  /**
+    * Implementation of the non-conservative flux
+    */
+  template<class Field>
+  class NonConservativeFlux: public Flux<Field> {
+  public:
+    NonConservativeFlux(const EOS<>& EOS_phase1, const EOS<>& EOS_phase2); // Construction which accepts in inputs the equations of stae of the two phases
+
+    FluxValue<typename Flux<Field>::cfg> compute_discrete_flux(const auto& qL, const auto& qR, const std::size_t curr_d = 0); // non conservative flux along direction d
+
+    auto make_flux(); // Compute the flux over all cells
+  };
+
+
+  // Constructor derived from base class
+  //
+  template<class Field>
+  NonConservativeFlux<Field>::NonConservativeFlux(const EOS<>& EOS_phase1, const EOS<>& EOS_phase2): Flux<Field>(EOS_phase1, EOS_phase2) {}
+
+
+  // Implementation of a Rusanov flux
+  //
+  template<class Field>
+  FluxValue<typename Flux<Field>::cfg> NonConservativeFlux<Field>::compute_discrete_flux(const auto& qL, const auto& qR, std::size_t curr_d) {
+    FluxValue<typename Flux<Field>::cfg> res;
+
+    // Left state interfacial velocity and interfacial pressure
+    const auto velIL_d = qL(ALPHA1_RHO1_U1_INDEX + curr_d)/qL(ALPHA1_RHO1_INDEX);
+    const auto rho2L   = qL(ALPHA2_RHO2_INDEX)/(1.0 - qL(ALPHA1_INDEX));
+    auto e2L           = qL(ALPHA2_RHO2_E2_INDEX)/qL(ALPHA2_RHO2_INDEX);
+    for(std::size_t d = 0; d < EquationData::dim; ++d) {
+      e2L -= 0.5*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX))*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX));
+    }
+    const auto pIL     = this->phase2.pres_value(rho2L, e2L);
+
+    // Right state interfacial velocity and interfacial pressure
+    const auto velIR_d = qR(ALPHA1_RHO1_U1_INDEX + curr_d)/qL(ALPHA1_RHO1_INDEX);
+    const auto rho2R   = qR(ALPHA2_RHO2_INDEX)/(1.0 - qL(ALPHA1_INDEX));
+    auto e2R           = qR(ALPHA2_RHO2_E2_INDEX)/qL(ALPHA2_RHO2_INDEX);
+    for(std::size_t d = 0; d < EquationData::dim; ++d) {
+      e2R -= 0.5*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX))*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX));
+    }
+    const auto pIR     = this->phase2.pres_value(rho2R, e2R);
+
+    // Build the non conservative flux (a lot of approximations to be checked here)
+    const auto velI   = 0.5*(velIL_d + velIR_d);
+    res(ALPHA1_INDEX) = velI >= 0 ? velI*qL(ALPHA1_INDEX) : velI*qR(ALPHA1_INDEX);
+
+    const auto pI                   = 0.5*(pIL + pIR);
+    res(ALPHA1_RHO1_INDEX + curr_d) = velI >= 0 ? -pI*qL(ALPHA1_INDEX) : -pI*qR(ALPHA1_INDEX);
+    res(ALPHA2_RHO2_INDEX + curr_d) = -res(ALPHA1_RHO1_INDEX + curr_d);
+
+    const auto velI_pI = 0.5*(velIL_d*pIL + velIR_d*pIR);
+    res(ALPHA1_RHO1_E1_INDEX) = velI >= 0 ? -velI_pI*qL(ALPHA1_INDEX) : -velI_pI*qR(ALPHA1_INDEX);
+    res(ALPHA2_RHO2_E2_INDEX) = -res(ALPHA1_RHO1_E1_INDEX);
+
+    return res;
+  }
+
+
+  // Implement the contribution of the discrete flux for all the cells in the mesh.
+  //
+  template<class Field>
+  auto NonConservativeFlux<Field>::make_flux() {
     FluxDefinition<typename Flux<Field>::cfg> discrete_flux;
 
     // Perform the loop over each dimension to compute the flux contribution

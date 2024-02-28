@@ -67,8 +67,11 @@ private:
   const SG_EOS<> EOS_phase1; // Equation of state of phase 1
   const SG_EOS<> EOS_phase2; // Equation of state of phase 2
 
-  samurai::RusanovFlux<Field> numerical_flux; // function to compute the numerical flux
-                                              // (this is necessary to call 'make_flux')
+  samurai::RusanovFlux<Field> numerical_flux_cons; // function to compute the numerical flux for the conservative part
+                                                   // (this is necessary to call 'make_flux')
+
+  samurai::NonConservativeFlux<Field> numerical_flux_non_cons; // function to compute the numerical flux for the non-conservative part
+                                                               // (this is necessary to call 'make_flux')
 
   // Now we declare a bunch of fields which depend from the state, but it is useful
   // to have it for the output
@@ -104,7 +107,8 @@ Relaxation<dim>::Relaxation(const xt::xtensor_fixed<double, xt::xshape<dim>>& mi
   Tf(Tf_), cfl(cfl_), nfiles(nfiles_),
   EOS_phase1(EquationData::gamma_1, EquationData::pi_infty_1, EquationData::q_infty_1),
   EOS_phase2(EquationData::gamma_2, EquationData::pi_infty_2, EquationData::q_infty_2),
-  numerical_flux(EOS_phase1, EOS_phase2) {
+  numerical_flux_cons(EOS_phase1, EOS_phase2),
+  numerical_flux_non_cons(EOS_phase1, EOS_phase2) {
     init_variables();
 }
 
@@ -260,8 +264,9 @@ void Relaxation<dim>::run() {
   // Auxiliary variables to save updated fields
   auto conserved_variables_np1 = samurai::make_field<double, EquationData::NVARS>("conserved_np1", mesh);
 
-  // Create the flux variable
-  auto flux = numerical_flux.make_flux();
+  // Create the flux variables
+  auto Rusanov_flux         = numerical_flux_cons.make_flux();
+  auto NonConservative_flux = numerical_flux_non_cons.make_flux();
 
   // Save the initial condition
   const std::string suffix_init = (nfiles != 1) ? "_ite_0" : "";
@@ -288,8 +293,9 @@ void Relaxation<dim>::run() {
     // Apply the numerical scheme without relaxation
     samurai::update_ghost_mr(conserved_variables);
     samurai::update_bc(conserved_variables);
-    auto Rusanov_flux       = flux(conserved_variables);
-    conserved_variables_np1 = conserved_variables - dt*Rusanov_flux;
+    auto Cons_Flux    = Rusanov_flux(conserved_variables);
+    auto NonCons_Flux = NonConservative_flux(conserved_variables);
+    conserved_variables_np1  = conserved_variables - dt*Cons_Flux - dt*NonCons_Flux;
 
     std::swap(conserved_variables.array(), conserved_variables_np1.array());
 
