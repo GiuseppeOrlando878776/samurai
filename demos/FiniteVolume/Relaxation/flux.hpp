@@ -7,7 +7,7 @@
 #include "eos.hpp"
 
 namespace EquationData {
-  static constexpr std::size_t dim = 2; /*--- Spatial dimension. It would be ideal to be able to get it
+  static constexpr std::size_t dim = 1; /*--- Spatial dimension. It would be ideal to be able to get it
                                               direclty from Field, but I need to move the definition of these indices ---*/
 
   /*--- Declare suitable static variables for the sake of generalities in the indices ---*/
@@ -22,8 +22,8 @@ namespace EquationData {
   static constexpr std::size_t NVARS = ALPHA2_RHO2_E2_INDEX + 1;
 
   // Parameters related to the EOS for the two phases
-  static constexpr double gamma_1    = 1.4;
-  static constexpr double pi_infty_1 = 0.0;
+  static constexpr double gamma_1    = 3.0;
+  static constexpr double pi_infty_1 = 100.0;
   static constexpr double q_infty_1  = 0.0;
 
   static constexpr double gamma_2    = 1.4;
