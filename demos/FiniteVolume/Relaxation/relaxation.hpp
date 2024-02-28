@@ -134,43 +134,51 @@ void Relaxation<dim>::init_variables() {
   vel1 = samurai::make_field<double, dim>("vel1", mesh);
   vel2 = samurai::make_field<double, dim>("vel2", mesh);
 
+  const double xd = 0.8;
+
   // Initialize the fields with a loop over all cells
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
                          {
-                           conserved_variables[cell][ALPHA1_INDEX]             = 0.5;
+                           const auto center = cell.center();
+                           const double x    = center[0];
 
-                           conserved_variables[cell][ALPHA1_RHO1_INDEX]        = 1.0;
-                           conserved_variables[cell][ALPHA1_RHO1_U1_INDEX]     = 1.0;
-                           conserved_variables[cell][ALPHA1_RHO1_E1_INDEX]     = 1.0;
+                           if(x <= xd) {
+                             conserved_variables[cell][ALPHA1_INDEX] = 0.7;
 
-                           conserved_variables[cell][ALPHA2_RHO2_INDEX]        = 1.0;
-                           conserved_variables[cell][ALPHA2_RHO2_U2_INDEX]     = 1.0;
-                           conserved_variables[cell][ALPHA2_RHO2_E2_INDEX]     = 1.0;
+                             rho1[cell] = 1.0;
+                             vel1[cell] = -19.59716;
+                             p1[cell]   = 1000.0;
 
-                           rho[cell] = conserved_variables[cell][ALPHA1_RHO1_INDEX]
-                                     + conserved_variables[cell][ALPHA2_RHO2_INDEX];
-
-                           rho1[cell] = conserved_variables[cell][ALPHA1_RHO1_INDEX]/conserved_variables[cell][ALPHA1_INDEX];
-                           vel1[cell] = conserved_variables[cell][ALPHA1_RHO1_U1_INDEX]/conserved_variables[cell][ALPHA1_RHO1_INDEX];
-                           auto e1 = conserved_variables[cell][ALPHA1_RHO1_E1_INDEX];
-                           for(std::size_t d = 0; d < EquationData::dim; ++d) {
-                             e1 -= 0.5*vel1[cell]*vel1[cell];
+                             rho2[cell] = 1.0;
+                             vel2[cell] = -19.59741;
+                             p2[cell]   = 1000.0;
                            }
-                           p1[cell] = EOS_phase1.pres_value(rho1[cell], e1);
+                           else {
+                             conserved_variables[cell][ALPHA1_INDEX] = 0.2;
+
+                             rho1[cell] = 1.0;
+                             vel1[cell] = -19.59741;
+                             p1[cell]   = 0.01;
+
+                             rho2[cell] = 1.0;
+                             vel2[cell] = -19.59741;
+                             p2[cell]   = 0.01;
+                           }
+
+                           conserved_variables[cell][ALPHA1_RHO1_INDEX]    = conserved_variables[cell][ALPHA1_INDEX]*rho1[cell];
+                           conserved_variables[cell][ALPHA1_RHO1_U1_INDEX] = conserved_variables[cell][ALPHA1_RHO1_INDEX]*vel1[cell];
+                           const auto e1 = EOS_phase1.e_value(rho1[cell], p1[cell]);
+                           conserved_variables[cell][ALPHA1_RHO1_E1_INDEX] = conserved_variables[cell][ALPHA1_RHO1_INDEX]*(e1 + 0.5*vel1[cell]*vel1[cell]);
+
+                           conserved_variables[cell][ALPHA2_RHO2_INDEX]    = (1.0 - conserved_variables[cell][ALPHA1_INDEX])*rho2[cell];
+                           conserved_variables[cell][ALPHA2_RHO2_U2_INDEX] = conserved_variables[cell][ALPHA2_RHO2_INDEX]*vel2[cell];
+                           const auto e2 = EOS_phase2.e_value(rho2[cell], p2[cell]);
+                           conserved_variables[cell][ALPHA2_RHO2_E2_INDEX] = conserved_variables[cell][ALPHA2_RHO2_INDEX]*(e2 + 0.5*vel2[cell]*vel2[cell]);
+
                            c1[cell] = EOS_phase1.c_value(rho1[cell], p1[cell]);
 
-                           rho2[cell] = conserved_variables[cell][ALPHA2_RHO2_INDEX]/(1.0 - conserved_variables[cell][ALPHA1_INDEX]);
-                           vel2[cell] = conserved_variables[cell][ALPHA2_RHO2_U2_INDEX]/conserved_variables[cell][ALPHA2_RHO2_INDEX];
-                           auto e2 = conserved_variables[cell][ALPHA2_RHO2_E2_INDEX];
-                           for(std::size_t d = 0; d < EquationData::dim; ++d) {
-                             e2 -= 0.5*vel2[cell]*vel2[cell];
-                           }
-                           p2[cell] = EOS_phase2.pres_value(rho2[cell], e2);
                            c2[cell] = EOS_phase2.c_value(rho2[cell], p2[cell]);
-
-                           p[cell] = conserved_variables[cell][ALPHA1_INDEX]*p1[cell]
-                                   + (1.0 - conserved_variables[cell][ALPHA1_INDEX])*p2[cell];
                          });
 }
 
