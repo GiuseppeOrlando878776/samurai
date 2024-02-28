@@ -103,7 +103,7 @@ Relaxation<dim>::Relaxation(const xt::xtensor_fixed<double, xt::xshape<dim>>& mi
                             const xt::xtensor_fixed<double, xt::xshape<dim>>& max_corner,
                             std::size_t min_level, std::size_t max_level,
                             double Tf_, double cfl_, std::size_t nfiles_):
-  box(min_corner, max_corner), mesh(box, min_level, max_level, {true}),
+  box(min_corner, max_corner), mesh(box, min_level, max_level, {false}),
   Tf(Tf_), cfl(cfl_), nfiles(nfiles_),
   EOS_phase1(EquationData::gamma_1, EquationData::pi_infty_1, EquationData::q_infty_1),
   EOS_phase2(EquationData::gamma_2, EquationData::pi_infty_2, EquationData::q_infty_2),
@@ -180,6 +180,8 @@ void Relaxation<dim>::init_variables() {
 
                            c2[cell] = EOS_phase2.c_value(rho2[cell], p2[cell]);
                          });
+
+  samurai::make_bc<samurai::Neumann>(conserved_variables, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 }
 
 
@@ -303,7 +305,7 @@ void Relaxation<dim>::run() {
     samurai::update_bc(conserved_variables);
     auto Cons_Flux    = Rusanov_flux(conserved_variables);
     auto NonCons_Flux = NonConservative_flux(conserved_variables);
-    conserved_variables_np1  = conserved_variables - dt*Cons_Flux - dt*NonCons_Flux;
+    conserved_variables_np1 = conserved_variables - dt*Cons_Flux - dt*NonCons_Flux;
 
     std::swap(conserved_variables.array(), conserved_variables_np1.array());
 
