@@ -134,7 +134,7 @@ void Relaxation<dim>::init_variables() {
   vel1 = samurai::make_field<double, dim>("vel1", mesh);
   vel2 = samurai::make_field<double, dim>("vel2", mesh);
 
-  const double xd = 0.8;
+  const double xd = 0.5;
 
   // Initialize the fields with a loop over all cells
   samurai::for_each_cell(mesh,
@@ -144,26 +144,26 @@ void Relaxation<dim>::init_variables() {
                            const double x    = center[0];
 
                            if(x <= xd) {
-                             conserved_variables[cell][ALPHA1_INDEX] = 0.7;
+                             conserved_variables[cell][ALPHA1_INDEX] = 0.5;
 
                              rho1[cell] = 1.0;
-                             vel1[cell] = -19.59716;
-                             p1[cell]   = 1000.0;
+                             vel1[cell] = 0.0;
+                             p1[cell]   = 1.0;
 
                              rho2[cell] = 1.0;
-                             vel2[cell] = -19.59741;
-                             p2[cell]   = 1000.0;
+                             vel2[cell] = 0.0;
+                             p2[cell]   = 1.0;
                            }
                            else {
-                             conserved_variables[cell][ALPHA1_INDEX] = 0.2;
+                             conserved_variables[cell][ALPHA1_INDEX] = 0.5;
 
-                             rho1[cell] = 1.0;
-                             vel1[cell] = -19.59741;
-                             p1[cell]   = 0.01;
+                             rho1[cell] = 0.125;
+                             vel1[cell] = 0.0;
+                             p1[cell]   = 0.1;
 
-                             rho2[cell] = 1.0;
-                             vel2[cell] = -19.59741;
-                             p2[cell]   = 0.01;
+                             rho2[cell] = 0.125;
+                             vel2[cell] = 0.0;
+                             p2[cell]   = 0.1;
                            }
 
                            conserved_variables[cell][ALPHA1_RHO1_INDEX]    = conserved_variables[cell][ALPHA1_INDEX]*rho1[cell];
@@ -216,7 +216,7 @@ void Relaxation<dim>::update_auxiliary_fields() {
 
                            rho1[cell] = conserved_variables[cell][ALPHA1_RHO1_INDEX]/conserved_variables[cell][ALPHA1_INDEX];
                            vel1[cell] = conserved_variables[cell][ALPHA1_RHO1_U1_INDEX]/conserved_variables[cell][ALPHA1_RHO1_INDEX];
-                           auto e1 = conserved_variables[cell][ALPHA1_RHO1_E1_INDEX];
+                           auto e1 = conserved_variables[cell][ALPHA1_RHO1_E1_INDEX]/conserved_variables[cell][ALPHA1_RHO1_INDEX];
                            for(std::size_t d = 0; d < EquationData::dim; ++d) {
                              e1 -= 0.5*vel1[cell]*vel1[cell];
                            }
@@ -225,7 +225,7 @@ void Relaxation<dim>::update_auxiliary_fields() {
 
                            rho2[cell] = conserved_variables[cell][ALPHA2_RHO2_INDEX]/(1.0 - conserved_variables[cell][ALPHA1_INDEX]);
                            vel2[cell] = conserved_variables[cell][ALPHA2_RHO2_U2_INDEX]/conserved_variables[cell][ALPHA2_RHO2_INDEX];
-                           auto e2 = conserved_variables[cell][ALPHA2_RHO2_E2_INDEX];
+                           auto e2 = conserved_variables[cell][ALPHA2_RHO2_E2_INDEX]/conserved_variables[cell][ALPHA2_RHO2_INDEX];
                            for(std::size_t d = 0; d < EquationData::dim; ++d) {
                              e2 -= 0.5*vel2[cell]*vel2[cell];
                            }
@@ -300,7 +300,7 @@ void Relaxation<dim>::run() {
 
     std::cout << fmt::format("Iteration {}: t = {}, dt = {}", ++nt, t, dt) << std::endl;
 
-    // Apply the numerical scheme without relaxation
+    // Apply the numerical scheme
     samurai::update_ghost_mr(conserved_variables);
     samurai::update_bc(conserved_variables);
     auto Cons_Flux    = Rusanov_flux(conserved_variables);
@@ -308,6 +308,8 @@ void Relaxation<dim>::run() {
     conserved_variables_np1 = conserved_variables - dt*Cons_Flux - dt*NonCons_Flux;
 
     std::swap(conserved_variables.array(), conserved_variables_np1.array());
+
+    update_auxiliary_fields();
 
     // Compute updated time step
     dx = samurai::cell_length(mesh[mesh_id_t::cells].max_level());
