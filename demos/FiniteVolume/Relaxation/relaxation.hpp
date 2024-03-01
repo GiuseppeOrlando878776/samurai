@@ -134,7 +134,7 @@ void Relaxation<dim>::init_variables() {
   vel1 = samurai::make_field<double, dim>("vel1", mesh);
   vel2 = samurai::make_field<double, dim>("vel2", mesh);
 
-  const double xd = 0.5;
+  const double xd = 0.8;
 
   // Initialize the fields with a loop over all cells
   samurai::for_each_cell(mesh,
@@ -144,26 +144,26 @@ void Relaxation<dim>::init_variables() {
                            const double x    = center[0];
 
                            if(x <= xd) {
-                             conserved_variables[cell][ALPHA1_INDEX] = 0.5;
+                             conserved_variables[cell][ALPHA1_INDEX] = 0.8;
 
-                             rho1[cell] = 1.0;
-                             vel1[cell] = 0.0;
-                             p1[cell]   = 1.0;
+                             rho1[cell] = 0.21340;
+                             vel1[cell] = -0.02609;
+                             p1[cell]   = 0.3;
 
-                             rho2[cell] = 1.0;
-                             vel2[cell] = 0.0;
+                             rho2[cell] = 1.00003;
+                             vel2[cell] = 0.00007;
                              p2[cell]   = 1.0;
                            }
                            else {
-                             conserved_variables[cell][ALPHA1_INDEX] = 0.5;
+                             conserved_variables[cell][ALPHA1_INDEX] = 0.3;
 
-                             rho1[cell] = 0.125;
-                             vel1[cell] = 0.0;
-                             p1[cell]   = 0.1;
+                             rho1[cell] = 0.96964;
+                             vel1[cell] = -0.03629;
+                             p1[cell]   = 0.95776;
 
-                             rho2[cell] = 0.125;
-                             vel2[cell] = 0.0;
-                             p2[cell]   = 0.1;
+                             rho2[cell] = 0.99993;
+                             vel2[cell] = -0.00004;
+                             p2[cell]   = 1.0;
                            }
 
                            conserved_variables[cell][ALPHA1_RHO1_INDEX]    = conserved_variables[cell][ALPHA1_INDEX]*rho1[cell];
