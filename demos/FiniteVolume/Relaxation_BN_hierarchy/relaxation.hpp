@@ -94,7 +94,11 @@ private:
 
   double get_max_lambda() const; // Compute the estimate of the maximum eigenvalue
 
-  void apply_instantaneous_velocity_relxation(); // Apply an instantaneous velocity relxation
+  void apply_instantaneous_velocity_relxation(); // Apply an instantaneous velocity relaxtion
+
+  void update_pressure_before_relaxation(); // Update pressure fields before relaxation
+
+  void apply_instantaneous_pressure_relaxation(); // Apply an instantaneous pressure relaxation
 };
 
 
@@ -200,21 +204,96 @@ void Relaxation<dim>::apply_instantaneous_velocity_relxation() {
                            // Update the momentum and the energy
                            for(std::size_t d = 0; d < EquationData::dim; ++d) {
                              // Save the velocity obtained after the hyperbolic step to update the energy
-                             const double vel1_d0 = conserved_variables[cell][ALPHA1_RHO1_U1_INDEX + d]/conserved_variables[cell][ALPHA1_RHO1_INDEX];
-                             const double vel2_d0 = conserved_variables[cell][ALPHA2_RHO2_U2_INDEX + d]/conserved_variables[cell][ALPHA2_RHO2_INDEX];
+                             const double vel1_d_0 = conserved_variables[cell][ALPHA1_RHO1_U1_INDEX + d]/conserved_variables[cell][ALPHA1_RHO1_INDEX];
+                             const double vel2_d_0 = conserved_variables[cell][ALPHA2_RHO2_U2_INDEX + d]/conserved_variables[cell][ALPHA2_RHO2_INDEX];
 
                              // Compute the equilibirum velocity
-                             const double vel_d = (conserved_variables[cell][ALPHA1_RHO1_INDEX]*vel1_d0 +
-                                                   conserved_variables[cell][ALPHA2_RHO2_INDEX]*vel2_d0)/rho_eq;
+                             const double vel_star_d = (conserved_variables[cell][ALPHA1_RHO1_INDEX]*vel1_d_0 +
+                                                        conserved_variables[cell][ALPHA2_RHO2_INDEX]*vel2_d_0)/rho_eq;
 
                              // Update the momentum
-                             conserved_variables[cell][ALPHA1_RHO1_U1_INDEX + d] = conserved_variables[cell][ALPHA1_RHO1_INDEX]*vel_d;
-                             conserved_variables[cell][ALPHA2_RHO2_U2_INDEX + d] = conserved_variables[cell][ALPHA2_RHO2_INDEX]*vel_d;
+                             conserved_variables[cell][ALPHA1_RHO1_U1_INDEX + d] = conserved_variables[cell][ALPHA1_RHO1_INDEX]*vel_star_d;
+                             conserved_variables[cell][ALPHA2_RHO2_U2_INDEX + d] = conserved_variables[cell][ALPHA2_RHO2_INDEX]*vel_star_d;
 
                              // Update the total energy
-                             conserved_variables[cell][ALPHA1_RHO1_E1_INDEX] += conserved_variables[cell][ALPHA1_RHO1_INDEX]*(vel_d*(vel_d - vel1_d0));
-                             conserved_variables[cell][ALPHA2_RHO2_E2_INDEX] += conserved_variables[cell][ALPHA2_RHO2_INDEX]*(vel_d*(vel_d - vel2_d0));
+                             conserved_variables[cell][ALPHA1_RHO1_E1_INDEX] += conserved_variables[cell][ALPHA1_RHO1_INDEX]*(vel_star_d*(vel_star_d - vel1_d_0));
+                             conserved_variables[cell][ALPHA2_RHO2_E2_INDEX] += conserved_variables[cell][ALPHA2_RHO2_INDEX]*(vel_star_d*(vel_star_d - vel2_d_0));
                            }
+                         });
+}
+
+
+// Update pressure fields before relaxation
+//
+template<std::size_t dim>
+void Relaxation<dim>::update_pressure_before_relaxation() {
+  samurai::for_each_cell(mesh,
+                         [&](const auto& cell)
+                         {
+                           auto e1 = conserved_variables[cell][ALPHA1_RHO1_E1_INDEX]/conserved_variables[cell][ALPHA1_RHO1_INDEX];
+                           auto e2 = conserved_variables[cell][ALPHA2_RHO2_E2_INDEX]/conserved_variables[cell][ALPHA2_RHO2_INDEX];
+                           for(std::size_t d = 0; d < EquationData::dim; ++d) {
+                             const double vel1_d = conserved_variables[cell][ALPHA1_RHO1_U1_INDEX + d]/conserved_variables[cell][ALPHA1_RHO1_INDEX];
+                             e1 -= 0.5*(vel1_d*vel1_d);
+
+                             const double vel2_d = conserved_variables[cell][ALPHA2_RHO2_U2_INDEX + d]/conserved_variables[cell][ALPHA2_RHO2_INDEX];
+                             e2 -= 0.5*(vel2_d*vel2_d);
+                           }
+                           p1[cell] = EOS_phase1.pres_value(conserved_variables[cell][ALPHA1_RHO1_INDEX]/conserved_variables[cell][ALPHA1_INDEX], e1);
+                           p2[cell] = EOS_phase2.pres_value(conserved_variables[cell][ALPHA2_RHO2_INDEX]/(1.0 - conserved_variables[cell][ALPHA1_INDEX]), e2);
+                         });
+}
+
+
+// Apply the instantaneous relaxation for the pressure
+//
+template<std::size_t dim>
+void Relaxation<dim>::apply_instantaneous_pressure_relaxation() {
+  samurai::for_each_cell(mesh,
+                         [&](const auto& cell)
+                         {
+                           // Save mixture internal energy for later update
+                           const auto e1     = EOS_phase1.e_value(conserved_variables[cell][ALPHA1_RHO1_INDEX]/conserved_variables[cell][ALPHA1_INDEX], p1[cell]);
+                           const auto e2     = EOS_phase2.e_value(conserved_variables[cell][ALPHA2_RHO2_INDEX]/(1.0 - conserved_variables[cell][ALPHA1_INDEX]), p2[cell]);
+                           const auto rhoe_0 = conserved_variables[cell][ALPHA1_RHO1_INDEX]*e1
+                                             + conserved_variables[cell][ALPHA2_RHO2_INDEX]*e2;
+
+                           // Compute the pressure equilibirum with the polynomial method (Saurel)
+                           const auto b = (conserved_variables[cell][ALPHA1_INDEX]*EquationData::gamma_2*(EquationData::pi_infty_2 - p1[cell]) +
+                                           (1.0 - conserved_variables[cell][ALPHA1_INDEX])*EquationData::gamma_1*(EquationData::pi_infty_1 - p2[cell]))/
+                                          (conserved_variables[cell][ALPHA1_INDEX]*EquationData::gamma_2 + (1.0 - conserved_variables[cell][ALPHA1_INDEX])*EquationData::gamma_1);
+                           const auto c = -(p1[cell]*conserved_variables[cell][ALPHA1_INDEX]*EquationData::gamma_2*EquationData::pi_infty_2 +
+                                            p2[cell]*(1.0 - conserved_variables[cell][ALPHA1_INDEX])*EquationData::gamma_1*EquationData::pi_infty_1)/
+                                           (conserved_variables[cell][ALPHA1_INDEX]*EquationData::gamma_2 + (1.0 - conserved_variables[cell][ALPHA1_INDEX])*EquationData::gamma_1);
+
+                           const auto p_star = 0.5*(-b + std::sqrt(b*b - 4.0*c));
+
+                           // Update the volume fraction using the compute pressure
+                           conserved_variables[cell][ALPHA1_INDEX] *= (p1[cell] + EquationData::gamma_1*EquationData::pi_infty_1 + p_star*(EquationData::gamma_1 - 1.0))/
+                                                                      (p_star + EquationData::gamma_1*EquationData::pi_infty_1 + p_star*(EquationData::gamma_1 - 1.0));
+
+                           // Compute the pressure using the mixture law
+                           const auto p_eq = (rhoe_0 -
+                                              (conserved_variables[cell][ALPHA1_INDEX]*EquationData::gamma_1*EquationData::pi_infty_1/(EquationData::gamma_1 - 1.0) +
+                                               (1.0 - conserved_variables[cell][ALPHA1_INDEX])*EquationData::gamma_2*EquationData::pi_infty_2/(EquationData::gamma_2 - 1.0)))/
+                                              (conserved_variables[cell][ALPHA1_INDEX]/(EquationData::gamma_1 - 1.0) +
+                                               (1.0 - conserved_variables[cell][ALPHA1_INDEX])/(EquationData::gamma_2 - 1.0));
+
+                           // Update the total energy of phase 1
+                           auto E1 = EOS_phase1.e_value(conserved_variables[cell][ALPHA1_RHO1_INDEX]/conserved_variables[cell][ALPHA1_INDEX], p_eq);
+                           for(std::size_t d = 0; d < EquationData::dim; ++d) {
+                             const auto vel1_d = conserved_variables[cell][ALPHA1_RHO1_U1_INDEX + d]/conserved_variables[cell][ALPHA1_RHO1_INDEX];
+                             E1 += 0.5*(vel1_d*vel1_d);
+                           }
+                           conserved_variables[cell][ALPHA1_RHO1_E1_INDEX] = conserved_variables[cell][ALPHA1_RHO1_INDEX]*E1;
+
+                           // Update the total energy of phase 2
+                           auto E2 = EOS_phase2.e_value(conserved_variables[cell][ALPHA2_RHO2_INDEX]/(1.0 - conserved_variables[cell][ALPHA1_INDEX]), p_eq);
+                           for(std::size_t d = 0; d < EquationData::dim; ++d) {
+                             const auto vel2_d = conserved_variables[cell][ALPHA2_RHO2_U2_INDEX + d]/conserved_variables[cell][ALPHA2_RHO2_INDEX];
+                             E2 += 0.5*(vel2_d*vel2_d);
+                           }
+                           conserved_variables[cell][ALPHA2_RHO2_E2_INDEX] = conserved_variables[cell][ALPHA2_RHO2_INDEX]*E2;
                          });
 }
 
@@ -238,7 +317,7 @@ double Relaxation<dim>::get_max_lambda() const {
 }
 
 
-// Update auxiliary fields after solutino of the system
+// Update auxiliary fields after solution of the system
 //
 template<std::size_t dim>
 void Relaxation<dim>::update_auxiliary_fields() {
@@ -343,8 +422,12 @@ void Relaxation<dim>::run() {
 
     std::swap(conserved_variables.array(), conserved_variables_np1.array());
 
-    // Apply the relaxation
+    // Apply the relaxation for the velocity
     apply_instantaneous_velocity_relxation();
+
+    // Apply the relaxation for the pressure
+    update_pressure_before_relaxation();
+    apply_instantaneous_pressure_relaxation();
 
     // Compute updated time step
     dx = samurai::cell_length(mesh[mesh_id_t::cells].max_level());
