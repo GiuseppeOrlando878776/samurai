@@ -104,7 +104,7 @@ void Advection<dim>::init_variables() {
                            const auto center = cell.center();
                            const double x    = center[0];
 
-                           vel[cell] = 1.0;
+                           vel[cell] = 0.5;
 
                            if(x < xd && x > xr) {
                              q[cell] = 0.51;

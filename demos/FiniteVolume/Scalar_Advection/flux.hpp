@@ -34,11 +34,18 @@ namespace samurai {
                                            const std::size_t curr_d); // Evaluate the 'continuous' flux for the state q along direction curr_d
 
     template<class Field_Vel>
-    FluxValue<cfg> compute_discrete_flux(const FluxValue<cfg>& qL,
-                                         const FluxValue<cfg>& qR,
-                                         const Field_Vel& vel_L,
-                                         const Field_Vel& vel_R,
-                                         const std::size_t curr_d); // advection flux along direction d
+    FluxValue<cfg> compute_discrete_flux_left_right(const FluxValue<cfg>& qL,
+                                                    const FluxValue<cfg>& qR,
+                                                    const Field_Vel& vel_L,
+                                                    const Field_Vel& vel_R,
+                                                    const std::size_t curr_d); // advection flux along direction d (left from right contribution)
+
+    template<class Field_Vel>
+    FluxValue<cfg> compute_discrete_flux_right_left(const FluxValue<cfg>& qL,
+                                                    const FluxValue<cfg>& qR,
+                                                    const Field_Vel& vel_L,
+                                                    const Field_Vel& vel_R,
+                                                    const std::size_t curr_d); // advection flux along direction d (right from left contribution)
 
     template<class Field_Vect>
     auto make_flux(const Field_Vect& vel); // Compute the flux over all cells
@@ -63,20 +70,48 @@ namespace samurai {
   }
 
 
-  // Implementation of the advection flux
+  // Implementation of the advection flux (left from right)
   //
   template<class Field>
   template<class Field_Vel>
-  FluxValue<typename Advection_Flux<Field>::cfg> Advection_Flux<Field>::compute_discrete_flux(const FluxValue<cfg>& qL,
-                                                                                              const FluxValue<cfg>& qR,
-                                                                                              const Field_Vel& vel_L,
-                                                                                              const Field_Vel& vel_R,
-                                                                                              std::size_t curr_d) {
-    // compute the maximum eigenvalue
+  FluxValue<typename Advection_Flux<Field>::cfg> Advection_Flux<Field>::compute_discrete_flux_left_right(const FluxValue<cfg>& qL,
+                                                                                                         const FluxValue<cfg>& qR,
+                                                                                                         const Field_Vel& vel_L,
+                                                                                                         const Field_Vel& vel_R,
+                                                                                                         std::size_t curr_d) {
+    FluxValue<cfg> res;
+
+    //res = 0.5*(vel_L + vel_R) > 0.0 ? 0.5*(vel_L + vel_R)*(qR - qL) : 0.0; /*--- Working ---*/
+
     const auto lambda = std::max(std::abs(vel_L), std::abs(vel_R));
 
-    return 0.5*(this->evaluate_continuos_flux(qL, vel_L, curr_d) + this->evaluate_continuos_flux(qR, vel_R, curr_d)) - // centered contribution
-           0.5*lambda*(qR - qL); // upwinding contribution
+    res = -(0.5*(vel_L*qL + vel_R*qR) - 0.5*(vel_L + vel_R)*qR -
+            0.5*lambda*(qR - qL)); /*--- Stabilizing term ---*/
+
+    return res;
+
+  }
+
+
+  // Implementation of the advection flux (right from left)
+  //
+  template<class Field>
+  template<class Field_Vel>
+  FluxValue<typename Advection_Flux<Field>::cfg> Advection_Flux<Field>::compute_discrete_flux_right_left(const FluxValue<cfg>& qL,
+                                                                                                         const FluxValue<cfg>& qR,
+                                                                                                         const Field_Vel& vel_L,
+                                                                                                         const Field_Vel& vel_R,
+                                                                                                         std::size_t curr_d) {
+    FluxValue<cfg> res;
+
+    //res = 0.5*(vel_L + vel_R) > 0.0 ? 0.0 : 0.5*(vel_L + vel_R)*(qR - qL); /*--- Working ---*/
+
+    const auto lambda = std::max(std::abs(vel_L), std::abs(vel_R));
+
+    res = (0.5*(vel_L*qL + vel_R*qR) - 0.5*(vel_L + vel_R)*qL -
+           0.5*lambda*(qR - qL)); /*--- Stabilizing term ---*/
+
+    return res;
   }
 
 
@@ -94,7 +129,7 @@ namespace samurai {
         static constexpr int d = decltype(integral_constant_d)::value;
 
         // Compute now the "discrete" flux function
-        discrete_flux[d].cons_flux_function = [&](auto& cells, const Field& field)
+        discrete_flux[d].flux_function = [&](auto& cells, const Field& field)
                                               {
                                                 const auto& left  = cells[0];
                                                 const auto& right = cells[1];
@@ -105,7 +140,11 @@ namespace samurai {
                                                 const auto& vel_L = vel[left];
                                                 const auto& vel_R = vel[right];
 
-                                                return compute_discrete_flux(qL, qR, vel_L, vel_R, d);
+                                                samurai::FluxValuePair<cfg> flux;
+                                                flux[0] = compute_discrete_flux_right_left(qL, qR, vel_L, vel_R, d);
+                                                flux[1] = compute_discrete_flux_left_right(qL, qR, vel_L, vel_R, d);
+
+                                                return flux;
                                               };
       }
     );
