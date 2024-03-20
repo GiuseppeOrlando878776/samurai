@@ -265,8 +265,19 @@ namespace samurai {
                                                                                                     std::size_t curr_d) {
     FluxValue<typename Flux<Field>::cfg> res;
 
-    // Interfacial velocity and interfacial pressure compute from left state
+    // Zero contribution from continuity equations
+    res(ALPHA1_RHO1_INDEX) = 0.0;
+    res(ALPHA2_RHO2_INDEX) = 0.0;
+
+    // Contribution for the volume fraction
     const auto velIL = qL(ALPHA1_RHO1_U1_INDEX + curr_d)/qL(ALPHA1_RHO1_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    const auto velIR = qR(ALPHA1_RHO1_U1_INDEX + curr_d)/qR(ALPHA1_RHO1_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    const auto lambda = std::max(std::abs(velIL), std::abs(velIR));
+
+    res(ALPHA1_INDEX) = -(0.5*(velIL*qL(ALPHA1_INDEX) + velIR*qR(ALPHA1_INDEX)) - 0.5*(velIL + velIR)*qR(ALPHA1_INDEX) -
+                          0.5*lambda*(qR(ALPHA1_INDEX) - qL(ALPHA1_INDEX))); /*--- Stabilizing term ---*/
+
+    // Contribution for the momentum balance
     const auto rho2L = qL(ALPHA2_RHO2_INDEX)/(1.0 - qL(ALPHA1_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     auto e2L         = qL(ALPHA2_RHO2_E2_INDEX)/qL(ALPHA2_RHO2_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     for(std::size_t d = 0; d < EquationData::dim; ++d) {
@@ -274,13 +285,18 @@ namespace samurai {
     }
     const auto pIL   = this->phase2.pres_value(rho2L, e2L);
 
-    // Build the non conservative flux (a lot of approximations to be checked here)
-    res(ALPHA1_INDEX) = velIL*qR(ALPHA1_INDEX);
+    const auto rho2R = qR(ALPHA2_RHO2_INDEX)/(1.0 - qR(ALPHA1_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    auto e2R         = qR(ALPHA2_RHO2_E2_INDEX)/qR(ALPHA2_RHO2_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    for(std::size_t d = 0; d < EquationData::dim; ++d) {
+      e2R -= 0.5*(qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX))*(qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    }
+    const auto pIR   = this->phase2.pres_value(rho2R, e2R);
 
-    res(ALPHA1_RHO1_INDEX + curr_d) = -pIL*qR(ALPHA1_INDEX);
-    res(ALPHA2_RHO2_INDEX + curr_d) = -res(ALPHA1_RHO1_INDEX + curr_d);
+    res(ALPHA1_RHO1_U1_INDEX + curr_d) = (0.5*(pIL*qL(ALPHA1_INDEX) + pIR*qR(ALPHA1_INDEX)) - 0.5*(pIL + pIR)*qR(ALPHA1_INDEX));
+    res(ALPHA2_RHO2_U2_INDEX + curr_d) = -res(ALPHA1_RHO1_U1_INDEX + curr_d);
 
-    res(ALPHA1_RHO1_E1_INDEX) = -velIL*pIL*qR(ALPHA1_INDEX);
+    // Contribution for the total energy
+    res(ALPHA1_RHO1_E1_INDEX) = (0.5*(velIL*pIL*qL(ALPHA1_INDEX) + velIR*pIR*qR(ALPHA1_INDEX)) - 0.5*(pIL + pIR)*qR(ALPHA1_INDEX));
     res(ALPHA2_RHO2_E2_INDEX) = -res(ALPHA1_RHO1_E1_INDEX);
 
     return res;
@@ -295,8 +311,28 @@ namespace samurai {
                                                                                                     std::size_t curr_d) {
     FluxValue<typename Flux<Field>::cfg> res;
 
-    // Interfacial velocity and interfacial pressure compute from right state
+    // Zero contribution from continuity equations
+    res(ALPHA1_RHO1_INDEX) = 0.0;
+    res(ALPHA2_RHO2_INDEX) = 0.0;
+
+    // Build the non conservative flux (a lot of approximations to be checked here)
+
+    // Contribution for the volume fraction
+    const auto velIL = qL(ALPHA1_RHO1_U1_INDEX + curr_d)/qL(ALPHA1_RHO1_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     const auto velIR = qR(ALPHA1_RHO1_U1_INDEX + curr_d)/qR(ALPHA1_RHO1_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    const auto lambda = std::max(std::abs(velIL), std::abs(velIR));
+
+    res(ALPHA1_INDEX) = (0.5*(velIL*qL(ALPHA1_INDEX) + velIR*qR(ALPHA1_INDEX)) - 0.5*(velIL + velIR)*qL(ALPHA1_INDEX) -
+                         0.5*lambda*(qR(ALPHA1_INDEX) - qL(ALPHA1_INDEX))); /*--- Stabilizing term ---*/
+
+    // Contribution for the momentum balance
+    const auto rho2L = qL(ALPHA2_RHO2_INDEX)/(1.0 - qL(ALPHA1_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    auto e2L         = qL(ALPHA2_RHO2_E2_INDEX)/qL(ALPHA2_RHO2_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    for(std::size_t d = 0; d < EquationData::dim; ++d) {
+      e2L -= 0.5*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX))*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    }
+    const auto pIL   = this->phase2.pres_value(rho2L, e2L);
+
     const auto rho2R = qR(ALPHA2_RHO2_INDEX)/(1.0 - qR(ALPHA1_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     auto e2R         = qR(ALPHA2_RHO2_E2_INDEX)/qR(ALPHA2_RHO2_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     for(std::size_t d = 0; d < EquationData::dim; ++d) {
@@ -304,13 +340,11 @@ namespace samurai {
     }
     const auto pIR   = this->phase2.pres_value(rho2R, e2R);
 
-    // Build the non conservative flux (a lot of approximations to be checked here)
-    res(ALPHA1_INDEX) = -velIR*qL(ALPHA1_INDEX);
+    res(ALPHA1_RHO1_U1_INDEX + curr_d) = -(0.5*(pIL*qL(ALPHA1_INDEX) + pIR*qR(ALPHA1_INDEX)) - 0.5*(pIL + pIR)*qL(ALPHA1_INDEX));
+    res(ALPHA2_RHO2_U2_INDEX + curr_d) = -res(ALPHA1_RHO1_U1_INDEX + curr_d);
 
-    res(ALPHA1_RHO1_INDEX + curr_d) = pIR*qL(ALPHA1_INDEX);
-    res(ALPHA2_RHO2_INDEX + curr_d) = -res(ALPHA1_RHO1_INDEX + curr_d);
-
-    res(ALPHA1_RHO1_E1_INDEX) = velIR*pIR*qL(ALPHA1_INDEX);
+    // Contribution for the total energy
+    res(ALPHA1_RHO1_E1_INDEX) = -(0.5*(velIL*pIL*qL(ALPHA1_INDEX) + velIR*pIR*qR(ALPHA1_INDEX)) - 0.5*(pIL + pIR)*qL(ALPHA1_INDEX));
     res(ALPHA2_RHO2_E2_INDEX) = -res(ALPHA1_RHO1_E1_INDEX);
 
     return res;
