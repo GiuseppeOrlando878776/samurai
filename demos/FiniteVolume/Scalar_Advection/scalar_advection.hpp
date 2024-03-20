@@ -196,8 +196,17 @@ void Advection<dim>::run() {
     // Apply the numerical scheme
     samurai::update_ghost_mr(q, vel);
     samurai::update_bc(q);
-    auto Adv_Flux = Advection_flux(q);
-    q_np1         = q - dt*Adv_Flux;
+    const samurai::Stencil<3, EquationData::dim> stencil = {{-1}, {0}, {1}};
+    samurai::for_each_stencil(mesh, stencil, [&](const auto& cells)
+                                                {
+                                                  const auto& left  = cells[0];
+                                                  const auto& mid   = cells[1];
+                                                  const auto& right = cells[2];
+
+                                                  q_np1[mid] = q[mid] - dt/dx*(vel[mid]*(q[right] - q[left])/2.0);
+                                                });
+    /*auto Adv_Flux = Advection_flux(q);
+    q_np1         = q - dt*Adv_Flux;*/
 
     std::swap(q.array(), q_np1.array());
 
