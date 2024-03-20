@@ -93,9 +93,9 @@ namespace samurai {
         res(ALPHA1_RHO1_U1_INDEX + d) *= vel1_d;
       }
     }
-    res(ALPHA1_RHO1_U1_INDEX + curr_d) += alpha1*pres1;
+    res(ALPHA1_RHO1_U1_INDEX + curr_d) += 0.0*alpha1*pres1;
     res(ALPHA1_RHO1_E1_INDEX) *= vel1_d;
-    res(ALPHA1_RHO1_E1_INDEX) += alpha1*pres1*vel1_d;
+    res(ALPHA1_RHO1_E1_INDEX) += 0.0*alpha1*pres1*vel1_d;
 
     // Compute density, velocity (along the dimension) and internal energy of phase 2
     const auto alpha2 = 1.0 - alpha1;
@@ -115,9 +115,9 @@ namespace samurai {
         res(ALPHA2_RHO2_U2_INDEX + d) *= vel2_d;
       }
     }
-    res(ALPHA2_RHO2_U2_INDEX + curr_d) += alpha2*pres2;
+    res(ALPHA2_RHO2_U2_INDEX + curr_d) += 0.0*alpha2*pres2;
     res(ALPHA2_RHO2_E2_INDEX) *= vel2_d;
-    res(ALPHA2_RHO2_E2_INDEX) += alpha2*pres2*vel2_d;
+    res(ALPHA2_RHO2_E2_INDEX) += 0.0*alpha2*pres2*vel2_d;
 
     return res;
   }
@@ -191,13 +191,19 @@ namespace samurai {
     const auto pres2R  = this->phase2.pres_value(rho2R, e2R);
     const auto c2R     = this->phase2.c_value(rho2R, pres2R);
 
-    const auto lambda = std::max(std::max(std::max(std::abs(vel1L_d + c1L), std::abs(vel1L_d - c1L)),
-                                          std::max(std::abs(vel1R_d + c1R), std::abs(vel1R_d - c1R))),
-                                 std::max(std::max(std::abs(vel2L_d + c2L), std::abs(vel2L_d - c2L)),
-                                          std::max(std::abs(vel2R_d + c2R), std::abs(vel2R_d - c2R))));
+    const auto lambda = std::max(std::max(std::max(std::abs(vel1L_d + 0.0*c1L), std::abs(vel1L_d - 0.0*c1L)),
+                                          std::max(std::abs(vel1R_d + 0.0*c1R), std::abs(vel1R_d - 0.0*c1R))),
+                                 std::max(std::max(std::abs(vel2L_d + 0.0*c2L), std::abs(vel2L_d - 0.0*c2L)),
+                                          std::max(std::abs(vel2R_d + 0.0*c2R), std::abs(vel2R_d - 0.0*c2R))));
+
+    // Auxiliary states to discard contribution for the volume fraction
+    auto qL_aux = qL;
+    auto qR_aux = qR;
+    qL_aux(ALPHA1_INDEX) = 0.0;
+    qR_aux(ALPHA1_INDEX) = 0.0;
 
     return 0.5*(this->evaluate_continuos_flux(qL, curr_d) + this->evaluate_continuos_flux(qR, curr_d)) - // centered contribution
-           0.5*lambda*(qR - qL); // upwinding contribution
+           0.5*lambda*(qR_aux - qL_aux); // upwinding contribution
   }
 
 
@@ -292,11 +298,11 @@ namespace samurai {
     }
     const auto pIR   = this->phase2.pres_value(rho2R, e2R);
 
-    res(ALPHA1_RHO1_U1_INDEX + curr_d) = (0.5*(pIL*qL(ALPHA1_INDEX) + pIR*qR(ALPHA1_INDEX)) - 0.5*(pIL + pIR)*qR(ALPHA1_INDEX));
+    res(ALPHA1_RHO1_U1_INDEX + curr_d) = 0.0*(0.5*(pIL*qL(ALPHA1_INDEX) + pIR*qR(ALPHA1_INDEX)) - 0.5*(pIL + pIR)*qR(ALPHA1_INDEX));
     res(ALPHA2_RHO2_U2_INDEX + curr_d) = -res(ALPHA1_RHO1_U1_INDEX + curr_d);
 
     // Contribution for the total energy
-    res(ALPHA1_RHO1_E1_INDEX) = (0.5*(velIL*pIL*qL(ALPHA1_INDEX) + velIR*pIR*qR(ALPHA1_INDEX)) - 0.5*(pIL + pIR)*qR(ALPHA1_INDEX));
+    res(ALPHA1_RHO1_E1_INDEX) = 0.0*(0.5*(velIL*pIL*qL(ALPHA1_INDEX) + velIR*pIR*qR(ALPHA1_INDEX)) - 0.5*(pIL + pIR)*qR(ALPHA1_INDEX));
     res(ALPHA2_RHO2_E2_INDEX) = -res(ALPHA1_RHO1_E1_INDEX);
 
     return res;
@@ -340,11 +346,11 @@ namespace samurai {
     }
     const auto pIR   = this->phase2.pres_value(rho2R, e2R);
 
-    res(ALPHA1_RHO1_U1_INDEX + curr_d) = -(0.5*(pIL*qL(ALPHA1_INDEX) + pIR*qR(ALPHA1_INDEX)) - 0.5*(pIL + pIR)*qL(ALPHA1_INDEX));
+    res(ALPHA1_RHO1_U1_INDEX + curr_d) = -0.0*(0.5*(pIL*qL(ALPHA1_INDEX) + pIR*qR(ALPHA1_INDEX)) - 0.5*(pIL + pIR)*qL(ALPHA1_INDEX));
     res(ALPHA2_RHO2_U2_INDEX + curr_d) = -res(ALPHA1_RHO1_U1_INDEX + curr_d);
 
     // Contribution for the total energy
-    res(ALPHA1_RHO1_E1_INDEX) = -(0.5*(velIL*pIL*qL(ALPHA1_INDEX) + velIR*pIR*qR(ALPHA1_INDEX)) - 0.5*(pIL + pIR)*qL(ALPHA1_INDEX));
+    res(ALPHA1_RHO1_E1_INDEX) = -0.0*(0.5*(velIL*pIL*qL(ALPHA1_INDEX) + velIR*pIR*qR(ALPHA1_INDEX)) - 0.5*(pIL + pIR)*qL(ALPHA1_INDEX));
     res(ALPHA2_RHO2_E2_INDEX) = -res(ALPHA1_RHO1_E1_INDEX);
 
     return res;
@@ -373,8 +379,8 @@ namespace samurai {
                                               const auto& qR = field[right];
 
                                               samurai::FluxValuePair<typename Flux<Field>::cfg> flux;
-                                              flux[0] = compute_discrete_flux_left_right(qL, qR, d);
-                                              flux[1] = compute_discrete_flux_right_left(qL, qR, d);
+                                              flux[0] = compute_discrete_flux_right_left(qL, qR, d);
+                                              flux[1] = compute_discrete_flux_left_right(qL, qR, d);
 
                                               return flux;
                                             };
