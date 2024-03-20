@@ -203,7 +203,13 @@ void Advection<dim>::run() {
                                                   const auto& mid   = cells[1];
                                                   const auto& right = cells[2];
 
-                                                  q_np1[mid] = q[mid] - dt/dx*(vel[mid]*(q[right] - q[left])/2.0);
+                                                  //q_np1[mid] = q[mid] - dt/dx*(vel[mid]*(q[right] - q[left])/2.0);
+                                                  if(vel[mid] > 0.0) {
+                                                    q_np1[mid] = q[mid] - dt/dx*(vel[mid]*(q[mid] - q[left]));
+                                                  }
+                                                  else {
+                                                    q_np1[mid] = q[mid] - dt/dx*(vel[mid]*(q[right] - q[mid]));
+                                                  }
                                                 });
     /*auto Adv_Flux = Advection_flux(q);
     q_np1         = q - dt*Adv_Flux;*/
