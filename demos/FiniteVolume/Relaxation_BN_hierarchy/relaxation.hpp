@@ -109,7 +109,7 @@ Relaxation<dim>::Relaxation(const xt::xtensor_fixed<double, xt::xshape<dim>>& mi
                             const xt::xtensor_fixed<double, xt::xshape<dim>>& max_corner,
                             std::size_t min_level, std::size_t max_level,
                             double Tf_, double cfl_, std::size_t nfiles_):
-  box(min_corner, max_corner), mesh(box, min_level, max_level, {true}),
+  box(min_corner, max_corner), mesh(box, min_level, max_level, {false}),
   Tf(Tf_), cfl(cfl_), nfiles(nfiles_),
   EOS_phase1(EquationData::gamma_1, EquationData::pi_infty_1, EquationData::q_infty_1),
   EOS_phase2(EquationData::gamma_2, EquationData::pi_infty_2, EquationData::q_infty_2),
@@ -140,8 +140,7 @@ void Relaxation<dim>::init_variables() {
   vel1 = samurai::make_field<double, dim>("vel1", mesh);
   vel2 = samurai::make_field<double, dim>("vel2", mesh);
 
-  const double xr = 0.2;
-  const double xd = 0.4;
+  const double xd = 0.75;
 
   // Initialize the fields with a loop over all cells
   samurai::for_each_cell(mesh,
@@ -150,25 +149,25 @@ void Relaxation<dim>::init_variables() {
                            const auto center = cell.center();
                            const double x    = center[0];
 
-                           if(x < xd && x > xr) {
-                             conserved_variables[cell][ALPHA1_INDEX] = 0.7;
+                           if(x <= xd) {
+                             conserved_variables[cell][ALPHA1_INDEX] = 1.0 - 1e-6;
 
-                             vel1[cell] = 10.0;
-                             p1[cell]   = 1e5;
-                             rho1[cell] = 1.0;
+                             vel1[cell] = 0.0;
+                             p1[cell]   = 1e9;
+                             rho1[cell] = 1000.0;
 
-                             vel2[cell] = 10.0;
-                             p2[cell]   = 1e5;
+                             vel2[cell] = 0.0;
+                             p2[cell]   = 1e9;
                              rho2[cell] = 1.0;
                            }
                            else {
-                             conserved_variables[cell][ALPHA1_INDEX] = 0.3;
+                             conserved_variables[cell][ALPHA1_INDEX] = 1e-6;
 
-                             vel1[cell] = 10.0;
+                             vel1[cell] = 0.0;
                              p1[cell]   = 1e5;
-                             rho1[cell] = 1.0;
+                             rho1[cell] = 1000.0;
 
-                             vel2[cell] = 10.0;
+                             vel2[cell] = 0.0;
                              p2[cell]   = 1e5;
                              rho2[cell] = 1.0;
                            }
@@ -193,6 +192,8 @@ void Relaxation<dim>::init_variables() {
                            p[cell] = conserved_variables[cell][ALPHA1_INDEX]*p1[cell]
                                    + (1.0 - conserved_variables[cell][ALPHA1_INDEX])*p2[cell];
                          });
+
+  samurai::make_bc<samurai::Neumann>(conserved_variables, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 }
 
 
@@ -414,11 +415,11 @@ void Relaxation<dim>::run() {
     std::swap(conserved_variables.array(), conserved_variables_np1.array());
 
     // Apply the relaxation for the velocity
-    //apply_instantaneous_velocity_relxation();
+    apply_instantaneous_velocity_relxation();
 
     // Apply the relaxation for the pressure
-    //update_pressure_before_relaxation();
-    //apply_instantaneous_pressure_relaxation();
+    update_pressure_before_relaxation();
+    apply_instantaneous_pressure_relaxation();
 
     // Compute updated time step
     dx = samurai::cell_length(mesh[mesh_id_t::cells].max_level());

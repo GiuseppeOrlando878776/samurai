@@ -179,6 +179,12 @@ void Relaxation<dim>::init_variables() {
                            c1[cell] = EOS_phase1.c_value(rho1[cell], p1[cell]);
 
                            c2[cell] = EOS_phase2.c_value(rho2[cell], p2[cell]);
+
+                           rho[cell] = conserved_variables[cell][ALPHA1_RHO1_INDEX]
+                                     + conserved_variables[cell][ALPHA2_RHO2_INDEX];
+
+                           p[cell] = conserved_variables[cell][ALPHA1_INDEX]*p1[cell]
+                                   + (1.0 - conserved_variables[cell][ALPHA1_INDEX])*p2[cell];
                          });
 
   samurai::make_bc<samurai::Neumann>(conserved_variables, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);

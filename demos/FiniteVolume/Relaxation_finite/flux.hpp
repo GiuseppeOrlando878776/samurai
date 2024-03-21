@@ -76,13 +76,13 @@ namespace samurai {
 
     // Compute density, velocity (along the dimension) and internal energy of phase 1
     const auto alpha1 = q(ALPHA1_INDEX);
-    const auto rho1   = q(ALPHA1_RHO1_INDEX)/alpha1;
-    auto e1           = q(ALPHA1_RHO1_E1_INDEX)/q(ALPHA1_RHO1_INDEX);
+    const auto rho1   = q(ALPHA1_RHO1_INDEX)/alpha1; /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    auto e1           = q(ALPHA1_RHO1_E1_INDEX)/q(ALPHA1_RHO1_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e1 -= 0.5*(q(ALPHA1_RHO1_U1_INDEX + d)/q(ALPHA1_RHO1_INDEX))*(q(ALPHA1_RHO1_U1_INDEX + d)/q(ALPHA1_RHO1_INDEX));
+      e1 -= 0.5*(q(ALPHA1_RHO1_U1_INDEX + d)/q(ALPHA1_RHO1_INDEX))*(q(ALPHA1_RHO1_U1_INDEX + d)/q(ALPHA1_RHO1_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     }
     const auto pres1  = this->phase1.pres_value(rho1, e1);
-    const auto vel1_d = q(ALPHA1_RHO1_U1_INDEX + curr_d)/q(ALPHA1_RHO1_INDEX);
+    const auto vel1_d = q(ALPHA1_RHO1_U1_INDEX + curr_d)/q(ALPHA1_RHO1_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
 
     // Compute the flux for the equations "associated" to phase 1
     res(ALPHA1_INDEX) = 0.0;
@@ -99,13 +99,13 @@ namespace samurai {
 
     // Compute density, velocity (along the dimension) and internal energy of phase 2
     const auto alpha2 = 1.0 - alpha1;
-    const auto rho2   = q(ALPHA2_RHO2_INDEX)/alpha2;
-    auto e2           = q(ALPHA2_RHO2_E2_INDEX)/q(ALPHA2_RHO2_INDEX);
+    const auto rho2   = q(ALPHA2_RHO2_INDEX)/alpha2; /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    auto e2           = q(ALPHA2_RHO2_E2_INDEX)/q(ALPHA2_RHO2_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e2 -= 0.5*(q(ALPHA2_RHO2_U2_INDEX + d)/q(ALPHA2_RHO2_INDEX))*(q(ALPHA2_RHO2_U2_INDEX + d)/q(ALPHA2_RHO2_INDEX));
+      e2 -= 0.5*(q(ALPHA2_RHO2_U2_INDEX + d)/q(ALPHA2_RHO2_INDEX))*(q(ALPHA2_RHO2_U2_INDEX + d)/q(ALPHA2_RHO2_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     }
     const auto pres2  = this->phase2.pres_value(rho2, e2);
-    const auto vel2_d = q(ALPHA2_RHO2_U2_INDEX + curr_d)/q(ALPHA2_RHO2_INDEX);
+    const auto vel2_d = q(ALPHA2_RHO2_U2_INDEX + curr_d)/q(ALPHA2_RHO2_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
 
     // Compute the flux for the equations "associated" to phase 2
     res(ALPHA2_RHO2_INDEX) *= vel2_d;
@@ -152,41 +152,41 @@ namespace samurai {
                                                                                  const FluxValue<typename Flux<Field>::cfg>& qR,
                                                                                  std::size_t curr_d) {
     // Left state phase 1
-    const auto vel1L_d = qL(ALPHA1_RHO1_U1_INDEX + curr_d)/qL(ALPHA1_RHO1_INDEX);
-    const auto rho1L   = qL(ALPHA1_RHO1_INDEX)/qL(ALPHA1_INDEX);
-    auto e1L           = qL(ALPHA1_RHO1_E1_INDEX)/qL(ALPHA1_RHO1_INDEX);
+    const auto vel1L_d = qL(ALPHA1_RHO1_U1_INDEX + curr_d)/qL(ALPHA1_RHO1_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    const auto rho1L   = qL(ALPHA1_RHO1_INDEX)/qL(ALPHA1_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    auto e1L           = qL(ALPHA1_RHO1_E1_INDEX)/qL(ALPHA1_RHO1_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e1L -= 0.5*(qL(ALPHA1_RHO1_U1_INDEX + d)/qL(ALPHA1_RHO1_INDEX))*(qL(ALPHA1_RHO1_U1_INDEX + d)/qL(ALPHA1_RHO1_INDEX));
+      e1L -= 0.5*(qL(ALPHA1_RHO1_U1_INDEX + d)/qL(ALPHA1_RHO1_INDEX))*(qL(ALPHA1_RHO1_U1_INDEX + d)/qL(ALPHA1_RHO1_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     }
     const auto pres1L  = this->phase1.pres_value(rho1L, e1L);
     const auto c1L     = this->phase1.c_value(rho1L, pres1L);
 
     // Left state phase 2
-    const auto vel2L_d = qL(ALPHA2_RHO2_U2_INDEX + curr_d)/qL(ALPHA2_RHO2_INDEX);
-    const auto rho2L   = qL(ALPHA2_RHO2_INDEX)/(1.0 - qL(ALPHA1_INDEX));
-    auto e2L           = qL(ALPHA2_RHO2_E2_INDEX)/qL(ALPHA2_RHO2_INDEX);
+    const auto vel2L_d = qL(ALPHA2_RHO2_U2_INDEX + curr_d)/qL(ALPHA2_RHO2_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    const auto rho2L   = qL(ALPHA2_RHO2_INDEX)/(1.0 - qL(ALPHA1_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    auto e2L           = qL(ALPHA2_RHO2_E2_INDEX)/qL(ALPHA2_RHO2_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e2L -= 0.5*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX))*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX));
+      e2L -= 0.5*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX))*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     }
     const auto pres2L  = this->phase2.pres_value(rho2L, e2L);
     const auto c2L     = this->phase2.c_value(rho2L, pres2L);
 
     // Right state phase 1
-    const auto vel1R_d = qR(ALPHA1_RHO1_U1_INDEX + curr_d)/qR(ALPHA1_RHO1_INDEX);
-    const auto rho1R   = qR(ALPHA1_RHO1_INDEX)/qR(ALPHA1_INDEX);
-    auto e1R           = qR(ALPHA1_RHO1_E1_INDEX)/qR(ALPHA1_RHO1_INDEX);
+    const auto vel1R_d = qR(ALPHA1_RHO1_U1_INDEX + curr_d)/qR(ALPHA1_RHO1_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    const auto rho1R   = qR(ALPHA1_RHO1_INDEX)/qR(ALPHA1_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    auto e1R           = qR(ALPHA1_RHO1_E1_INDEX)/qR(ALPHA1_RHO1_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e1R -= 0.5*(qR(ALPHA1_RHO1_U1_INDEX + d)/qR(ALPHA1_RHO1_INDEX))*(qR(ALPHA1_RHO1_U1_INDEX + d)/qR(ALPHA1_RHO1_INDEX));
+      e1R -= 0.5*(qR(ALPHA1_RHO1_U1_INDEX + d)/qR(ALPHA1_RHO1_INDEX))*(qR(ALPHA1_RHO1_U1_INDEX + d)/qR(ALPHA1_RHO1_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     }
     const auto pres1R  = this->phase1.pres_value(rho1R, e1R);
     const auto c1R     = this->phase1.c_value(rho1R, pres1R);
 
     // Right state phase 2
-    const auto vel2R_d = qR(ALPHA2_RHO2_U2_INDEX + curr_d)/qR(ALPHA2_RHO2_INDEX);
-    const auto rho2R   = qR(ALPHA2_RHO2_INDEX)/(1.0 - qR(ALPHA1_INDEX));
-    auto e2R           = qR(ALPHA2_RHO2_E2_INDEX)/qR(ALPHA2_RHO2_INDEX);
+    const auto vel2R_d = qR(ALPHA2_RHO2_U2_INDEX + curr_d)/qR(ALPHA2_RHO2_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    const auto rho2R   = qR(ALPHA2_RHO2_INDEX)/(1.0 - qR(ALPHA1_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    auto e2R           = qR(ALPHA2_RHO2_E2_INDEX)/qR(ALPHA2_RHO2_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e2R -= 0.5*(qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX))*(qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX));
+      e2R -= 0.5*(qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX))*(qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     }
     const auto pres2R  = this->phase2.pres_value(rho2R, e2R);
     const auto c2R     = this->phase2.c_value(rho2R, pres2R);
@@ -219,8 +219,8 @@ namespace samurai {
                                                 const auto& left  = cells[0];
                                                 const auto& right = cells[1];
 
-                                                const auto& qL = field[left];
                                                 const auto& qR = field[right];
+                                                const auto& qL = field[left];
 
                                                 return compute_discrete_flux(qL, qR, d);
                                               };
@@ -265,22 +265,26 @@ namespace samurai {
                                                                                                     std::size_t curr_d) {
     FluxValue<typename Flux<Field>::cfg> res;
 
-    // Interfacial velocity and interfacial pressure compute from left state
-    const auto velIL = qL(ALPHA1_RHO1_U1_INDEX + curr_d)/qL(ALPHA1_RHO1_INDEX);
-    const auto rho2L = qL(ALPHA2_RHO2_INDEX)/(1.0 - qL(ALPHA1_INDEX));
-    auto e2L         = qL(ALPHA2_RHO2_E2_INDEX)/qL(ALPHA2_RHO2_INDEX);
+    // Zero contribution from continuity equations
+    res(ALPHA1_RHO1_INDEX) = 0.0;
+    res(ALPHA2_RHO2_INDEX) = 0.0;
+
+    // Interfacial velocity and interfacial pressure compute from right state
+    const auto velIR = qR(ALPHA1_RHO1_U1_INDEX + curr_d)/qR(ALPHA1_RHO1_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    const auto rho2R = qR(ALPHA2_RHO2_INDEX)/(1.0 - qR(ALPHA1_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    auto e2R         = qR(ALPHA2_RHO2_E2_INDEX)/qR(ALPHA2_RHO2_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e2L -= 0.5*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX))*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX));
+      e2R -= 0.5*(qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX))*(qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     }
-    const auto pIL   = this->phase2.pres_value(rho2L, e2L);
+    const auto pIR   = this->phase2.pres_value(rho2R, e2R);
 
     // Build the non conservative flux (a lot of approximations to be checked here)
-    res(ALPHA1_INDEX) = velIL*qR(ALPHA1_INDEX);
+    res(ALPHA1_INDEX) = -0.5*velIR*qL(ALPHA1_INDEX);
 
-    res(ALPHA1_RHO1_INDEX + curr_d) = -pIL*qR(ALPHA1_INDEX);
-    res(ALPHA2_RHO2_INDEX + curr_d) = -res(ALPHA1_RHO1_INDEX + curr_d);
+    res(ALPHA1_RHO1_U1_INDEX + curr_d) = 0.5*pIR*qL(ALPHA1_INDEX);
+    res(ALPHA2_RHO2_U2_INDEX + curr_d) = -res(ALPHA1_RHO1_U1_INDEX + curr_d);
 
-    res(ALPHA1_RHO1_E1_INDEX) = -velIL*pIL*qR(ALPHA1_INDEX);
+    res(ALPHA1_RHO1_E1_INDEX) = 0.5*velIR*pIR*qL(ALPHA1_INDEX);
     res(ALPHA2_RHO2_E2_INDEX) = -res(ALPHA1_RHO1_E1_INDEX);
 
     return res;
@@ -295,22 +299,26 @@ namespace samurai {
                                                                                                     std::size_t curr_d) {
     FluxValue<typename Flux<Field>::cfg> res;
 
-    // Interfacial velocity and interfacial pressure compute from right state
-    const auto velIR = qR(ALPHA1_RHO1_U1_INDEX + curr_d)/qR(ALPHA1_RHO1_INDEX);
-    const auto rho2R = qR(ALPHA2_RHO2_INDEX)/(1.0 - qR(ALPHA1_INDEX));
-    auto e2R         = qR(ALPHA2_RHO2_E2_INDEX)/qR(ALPHA2_RHO2_INDEX);
+    // Zero contribution from continuity equations
+    res(ALPHA1_RHO1_INDEX) = 0.0;
+    res(ALPHA2_RHO2_INDEX) = 0.0;
+
+    // Interfacial velocity and interfacial pressure compute from left state
+    const auto velIL = qL(ALPHA1_RHO1_U1_INDEX + curr_d)/qL(ALPHA1_RHO1_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    const auto rho2L = qL(ALPHA2_RHO2_INDEX)/(1.0 - qL(ALPHA1_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+    auto e2L         = qL(ALPHA2_RHO2_E2_INDEX)/qL(ALPHA2_RHO2_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e2R -= 0.5*(qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX))*(qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX));
+      e2L -= 0.5*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX))*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     }
-    const auto pIR   = this->phase2.pres_value(rho2R, e2R);
+    const auto pIL   = this->phase2.pres_value(rho2L, e2L);
 
     // Build the non conservative flux (a lot of approximations to be checked here)
-    res(ALPHA1_INDEX) = -velIR*qL(ALPHA1_INDEX);
+    res(ALPHA1_INDEX) = 0.5*velIL*qR(ALPHA1_INDEX);
 
-    res(ALPHA1_RHO1_INDEX + curr_d) = pIR*qL(ALPHA1_INDEX);
-    res(ALPHA2_RHO2_INDEX + curr_d) = -res(ALPHA1_RHO1_INDEX + curr_d);
+    res(ALPHA1_RHO1_U1_INDEX + curr_d) = -0.5*pIL*qR(ALPHA1_INDEX);
+    res(ALPHA2_RHO2_U2_INDEX + curr_d) = -res(ALPHA1_RHO1_U1_INDEX + curr_d);
 
-    res(ALPHA1_RHO1_E1_INDEX) = velIR*pIR*qL(ALPHA1_INDEX);
+    res(ALPHA1_RHO1_E1_INDEX) = -0.5*velIL*pIL*qR(ALPHA1_INDEX);
     res(ALPHA2_RHO2_E2_INDEX) = -res(ALPHA1_RHO1_E1_INDEX);
 
     return res;
@@ -339,11 +347,11 @@ namespace samurai {
                                               const auto& qR = field[right];
 
                                               samurai::FluxValuePair<typename Flux<Field>::cfg> flux;
-                                              flux[0] = compute_discrete_flux_left_right(qL, qR, d);
-                                              flux[1] = compute_discrete_flux_right_left(qL, qR, d);
+                                              flux[0] = compute_discrete_flux_right_left(qL, qR, d);
+                                              flux[1] = compute_discrete_flux_left_right(qL, qR, d);
 
                                               return flux;
-                                              };
+                                            };
       }
     );
 
