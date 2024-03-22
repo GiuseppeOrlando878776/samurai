@@ -94,6 +94,8 @@ private:
 
   double get_max_lambda() const; // Compute the estimate of the maximum eigenvalue
 
+  void update_velocity_before_relaxation(); // Update velocity fields before relaxation
+
   void apply_instantaneous_velocity_relxation(); // Apply an instantaneous velocity relaxtion
 
   void update_pressure_before_relaxation(); // Update pressure fields before relaxation
@@ -197,6 +199,19 @@ void Relaxation<dim>::init_variables() {
 }
 
 
+// Update pressure fields before relaxation
+//
+template<std::size_t dim>
+void Relaxation<dim>::update_velocity_before_relaxation() {
+  samurai::for_each_cell(mesh,
+                         [&](const auto& cell)
+                         {
+                           vel1[cell] = conserved_variables[cell][ALPHA1_RHO1_U1_INDEX]/conserved_variables[cell][ALPHA1_RHO1_INDEX]; /*--- TODO: Add treatment for vanishing volume fraction ---*/
+                           vel2[cell] = conserved_variables[cell][ALPHA2_RHO2_U2_INDEX]/conserved_variables[cell][ALPHA2_RHO2_INDEX]; /*--- TODO: Add treatment for vanishing volume fraction ---*/
+                         });
+}
+
+
 // Apply the instantaneous relaxation for the velocity
 //
 template<std::size_t dim>
@@ -204,18 +219,23 @@ void Relaxation<dim>::apply_instantaneous_velocity_relxation() {
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
                          {
-                           // Compute the mixture density for the update
-                           const double rho_0 = conserved_variables[cell][ALPHA1_RHO1_INDEX]
-                                              + conserved_variables[cell][ALPHA2_RHO2_INDEX];
+                           // Compute mixture density and (specific) total energy for the updates
+                           const auto rho_0 = conserved_variables[cell][ALPHA1_RHO1_INDEX]
+                                            + conserved_variables[cell][ALPHA2_RHO2_INDEX];
 
-                           // Update the momentum and the energy
+                           const auto rhoE_0 = conserved_variables[cell][ALPHA1_RHO1_E1_INDEX]
+                                             + conserved_variables[cell][ALPHA2_RHO2_E2_INDEX];
+
+                           // Save specific internal energy of phase 1 for the total energy update
+                           auto e1 = conserved_variables[cell][ALPHA1_RHO1_E1_INDEX]/conserved_variables[cell][ALPHA1_RHO1_INDEX]; /*--- TODO: Add treatment for vanishing volume fraction ---*/
                            for(std::size_t d = 0; d < EquationData::dim; ++d) {
-                             // Save the velocity obtained after the hyperbolic step to update the energy
-                             const auto vel1_d_0 = conserved_variables[cell][ALPHA1_RHO1_U1_INDEX + d]/conserved_variables[cell][ALPHA1_RHO1_INDEX]; /*--- TODO: Add treatment for
-                                                                                                                                                                 vanishing volume fraction ---*/
-                             const auto vel2_d_0 = conserved_variables[cell][ALPHA2_RHO2_U2_INDEX + d]/conserved_variables[cell][ALPHA2_RHO2_INDEX]; /*--- TODO: Add treatment for
-                                                                                                                                                                 vanishing volume fraction ---*/
+                             e1 -= 0.5*(conserved_variables[cell][ALPHA1_RHO1_U1_INDEX + d]/conserved_variables[cell][ALPHA1_RHO1_INDEX])*
+                                       (conserved_variables[cell][ALPHA1_RHO1_U1_INDEX + d]/conserved_variables[cell][ALPHA1_RHO1_INDEX]); /*--- TODO: Add treatment for vanishing volume fraction ---*/
+                           }
 
+                           // Update the momentum (and the kinetic energy of phase 1)
+                           conserved_variables[cell][ALPHA1_RHO1_E1_INDEX] = 0.0;
+                           for(std::size_t d = 0; d < EquationData::dim; ++d) {
                              // Compute the equilibrium velocity
                              const auto vel_star_d = (conserved_variables[cell][ALPHA1_RHO1_U1_INDEX + d] +
                                                       conserved_variables[cell][ALPHA2_RHO2_U2_INDEX + d])/rho_0;
@@ -225,11 +245,17 @@ void Relaxation<dim>::apply_instantaneous_velocity_relxation() {
 
                              conserved_variables[cell][ALPHA2_RHO2_U2_INDEX + d] = conserved_variables[cell][ALPHA2_RHO2_INDEX]*vel_star_d;
 
-                             // Update the total energy
-                             conserved_variables[cell][ALPHA1_RHO1_E1_INDEX] += conserved_variables[cell][ALPHA1_RHO1_INDEX]*(vel_star_d*(vel_star_d - vel1_d_0));
-
-                             conserved_variables[cell][ALPHA2_RHO2_E2_INDEX] += conserved_variables[cell][ALPHA2_RHO2_INDEX]*(vel_star_d*(vel_star_d - vel2_d_0));
+                             // Update the kinetic energy of phase 1
+                             conserved_variables[cell][ALPHA1_RHO1_E1_INDEX] += 0.5*conserved_variables[cell][ALPHA1_RHO1_INDEX]*vel_star_d*vel_star_d;
                            }
+
+                           // Update total energy of the two phases
+                           const auto Y2      = conserved_variables[cell][ALPHA2_RHO2_INDEX]/rho_0;
+                           const auto chi     = Y2; // uI = (1 - chi)*u1 + chi*u2;
+                           const auto e1_star = e1 + 0.5*chi*(vel1[cell] - vel2[cell])*(vel1[cell] - vel2[cell])*Y2;
+                           conserved_variables[cell][ALPHA1_RHO1_E1_INDEX] += conserved_variables[cell][ALPHA1_RHO1_INDEX]*e1_star;
+
+                           conserved_variables[cell][ALPHA2_RHO2_E2_INDEX] = rhoE_0 - conserved_variables[cell][ALPHA1_RHO1_E1_INDEX];
                          });
 }
 
@@ -426,6 +452,7 @@ void Relaxation<dim>::run() {
     std::swap(conserved_variables.array(), conserved_variables_np1.array());
 
     // Apply the relaxation for the velocity
+    update_velocity_before_relaxation();
     apply_instantaneous_velocity_relxation();
 
     // Apply the relaxation for the pressure
