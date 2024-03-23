@@ -125,7 +125,7 @@ StaticBubble<dim>::StaticBubble(const xt::xtensor_fixed<double, xt::xshape<dim>>
                                 std::size_t min_level, std::size_t max_level,
                                 double Tf_, double cfl_, std::size_t nfiles_,
                                 bool apply_relax_):
-  box(min_corner, max_corner), mesh(box, min_level, max_level, {true, true}),
+  box(min_corner, max_corner), mesh(box, min_level, max_level, {false, false}),
   apply_relax(apply_relax_), Tf(Tf_), cfl(cfl_), nfiles(nfiles_),
   gradient(samurai::make_gradient<decltype(alpha1_bar)>()),
   divergence(samurai::make_divergence<decltype(normal)>()),
@@ -271,6 +271,9 @@ void StaticBubble<dim>::init_variables() {
                            c[cell] = std::sqrt(c_squared/rho[cell])/
                                      (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
                          });
+
+  // Consider homogeneous Dirichlet bcs
+  samurai::make_bc<samurai::Dirichlet>(conserved_variables, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 }
 
 
@@ -517,7 +520,7 @@ void StaticBubble<dim>::run() {
     // Apply the numerical scheme without relaxation
     samurai::update_ghost_mr(conserved_variables, vel, p_bar, c, mod_grad_alpha1_bar, normal);
     samurai::update_bc(conserved_variables, vel, p_bar, c, mod_grad_alpha1_bar, normal);
-    auto flux_conserved     = flux(conserved_variables);
+    auto flux_conserved = flux(conserved_variables);
     conserved_variables_np1 = conserved_variables - dt*flux_conserved;
 
     std::swap(conserved_variables.array(), conserved_variables_np1.array());

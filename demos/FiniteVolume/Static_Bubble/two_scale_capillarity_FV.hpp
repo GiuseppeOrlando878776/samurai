@@ -2,6 +2,9 @@
 #include <samurai/schemes/fv.hpp>
 
 namespace EquationData {
+  // Declare spatial dimension
+  static constexpr std::size_t dim = 2;
+
   // Declare parameters related to surface tension coefficient
   static constexpr double sigma = 1.0;
 
@@ -26,7 +29,7 @@ namespace EquationData {
   static constexpr std::size_t RHO_V_INDEX          = 7;
 
   // Save also the total number of (scalar) vairables
-  static constexpr std::size_t NVARS = 8;
+  static constexpr std::size_t NVARS = 6 + dim;
 }
 
 
@@ -39,8 +42,9 @@ namespace samurai {
   template<class Field, class Field_Vect, class Field_Scalar>
   auto make_two_scale_capillarity(const Field_Vect& vel, const Field_Scalar& pres, const Field_Scalar& c,
                                   const Field_Vect& normal, const Field_Scalar& norm_grad_alpha1_bar) {
-    static constexpr std::size_t dim = Field::dim;
-    static_assert(Field::dim == Field_Vect::size, "No mathcing spactial dimension in make_two_scale_capillarity");
+    static_assert(Field::dim == EquationData::dim, "No mathcing spatial dimension between Field and Data");
+    static_assert(Field::dim == Field_Vect::size, "No mathcing spatial dimension in make_two_scale_capillarity");
+    static_assert(Field::size == EquationData::NVARS, "The number of elements in the state does not correpsond to the number of equations");
 
     static constexpr std::size_t field_size        = Field::size;
     static constexpr std::size_t output_field_size = field_size;
@@ -51,7 +55,7 @@ namespace samurai {
     FluxDefinition<cfg> Rusanov_f;
 
     // Perform the loop over each dimension to compute the flux contribution
-    static_for<0, dim>::apply(
+    static_for<0, EquationData::dim>::apply(
       // First, we need a function to compute the "continuous" flux
       [&](auto integral_constant_d)
       {
