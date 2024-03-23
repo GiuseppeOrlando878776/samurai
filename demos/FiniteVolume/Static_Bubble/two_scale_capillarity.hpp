@@ -15,7 +15,8 @@ namespace fs = std::filesystem;
 
 #include "two_scale_capillarity_FV.hpp"
 
-#include <samurai/mr/adapt.hpp>
+#include <samurai/algorithm/graduation.hpp>
+#include <samurai/amr/mesh.hpp>
 
 // Specify the use of this namespace where we just store the indices
 // and, in this case, some parameters related to EOS
@@ -26,7 +27,7 @@ using namespace EquationData;
 template<std::size_t dim>
 class StaticBubble {
 public:
-  using Config = samurai::MRConfig<dim>;
+  using Config = samurai::amr::Config<dim>;
 
   StaticBubble() = default; // Default constructor. This will do nothing
                             // and basically will never be used
@@ -51,7 +52,7 @@ private:
   /*--- Now we declare some relevant variables ---*/
   const samurai::Box<double, dim> box;
 
-  samurai::MRMesh<Config> mesh; // Variable to store the mesh
+  samurai::amr::Mesh<Config> mesh; // Variable to store the mesh
   using mesh_id_t = typename decltype(mesh)::mesh_id_t;
 
   using Field        = samurai::Field<decltype(mesh), double, EquationData::NVARS, false>;
@@ -125,7 +126,7 @@ StaticBubble<dim>::StaticBubble(const xt::xtensor_fixed<double, xt::xshape<dim>>
                                 std::size_t min_level, std::size_t max_level,
                                 double Tf_, double cfl_, std::size_t nfiles_,
                                 bool apply_relax_):
-  box(min_corner, max_corner), mesh(box, min_level, max_level, {false, false}),
+  box(min_corner, max_corner), mesh(box, max_level, min_level, max_level),
   apply_relax(apply_relax_), Tf(Tf_), cfl(cfl_), nfiles(nfiles_),
   gradient(samurai::make_gradient<decltype(alpha1_bar)>()),
   divergence(samurai::make_divergence<decltype(normal)>()),
@@ -142,7 +143,7 @@ StaticBubble<dim>::StaticBubble(const xt::xtensor_fixed<double, xt::xshape<dim>>
 //
 template<std::size_t dim>
 void StaticBubble<dim>::update_geometry() {
-  samurai::update_ghost_mr(alpha1_bar);
+  samurai::update_ghost(alpha1_bar);
   grad_alpha1_bar = gradient(alpha1_bar);
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
@@ -158,7 +159,7 @@ void StaticBubble<dim>::update_geometry() {
                              }
                            }
                          });
-  samurai::update_ghost_mr(normal);
+  samurai::update_ghost(normal);
   H = -divergence(normal);
 }
 
@@ -518,7 +519,7 @@ void StaticBubble<dim>::run() {
     std::cout << fmt::format("Iteration {}: t = {}, dt = {}", ++nt, t, dt) << std::endl;
 
     // Apply the numerical scheme without relaxation
-    samurai::update_ghost_mr(conserved_variables, vel, p_bar, c, mod_grad_alpha1_bar, normal);
+    samurai::update_ghost(conserved_variables, vel, p_bar, c, mod_grad_alpha1_bar, normal);
     samurai::update_bc(conserved_variables, vel, p_bar, c, mod_grad_alpha1_bar, normal);
     auto flux_conserved = flux(conserved_variables);
     conserved_variables_np1 = conserved_variables - dt*flux_conserved;
