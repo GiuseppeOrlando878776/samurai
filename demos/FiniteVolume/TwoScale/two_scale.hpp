@@ -56,7 +56,7 @@ private:
 
   samurai::MRMesh<Config> mesh; // Variable to store the mesh
 
-  using Field        = samurai::Field<decltype(mesh), double, 7, false>;
+  using Field        = samurai::Field<decltype(mesh), double, EquationData::NVARS, false>;
   using Field_Scalar = samurai::Field<decltype(mesh), double, 1, false>;
   using Field_Vect   = samurai::Field<decltype(mesh), double, dim, false>;
 
@@ -84,7 +84,8 @@ private:
                alpha2,
                rho2,
                p_bar,
-               c;
+               c,
+               alpha1_d;
 
   Field_Vect vel;
 
@@ -115,7 +116,7 @@ TwoScale<dim>::TwoScale(const xt::xtensor_fixed<double, xt::xshape<dim>>& min_co
                         std::size_t min_level, std::size_t max_level,
                         double Tf_, double cfl_, std::size_t nfiles_,
                         bool apply_relax_):
-  box(min_corner, max_corner), mesh(box, min_level, max_level, {false, true}),
+  box(min_corner, max_corner), mesh(box, min_level, max_level, {false, false}),
   apply_relax(apply_relax_), Tf(Tf_), cfl(cfl_), nfiles(nfiles_) {
     EOS_phase1 = LinearizedBarotropicEOS(p0_phase1, rho0_phase1, c0_phase1);
     EOS_phase2 = LinearizedBarotropicEOS(p0_phase2, rho0_phase2, c0_phase2);
@@ -123,6 +124,18 @@ TwoScale<dim>::TwoScale(const xt::xtensor_fixed<double, xt::xshape<dim>>& min_co
     init_variables();
     impose_left_dirichet_BC();
     impose_right_dirichet_BC();
+
+    /*--- Impose Neumann bcs on the top and bottom boundaries ---*/
+    samurai::DirectionVector<dim> top    = {0, 1};
+    samurai::DirectionVector<dim> bottom = {0, -1};
+    samurai::make_bc<samurai::Neumann>(conserved_variables, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)->on(top);
+    samurai::make_bc<samurai::Neumann>(conserved_variables, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)->on(bottom);
+    samurai::make_bc<samurai::Neumann>(vel, 0.0, 0.0)->on(top);
+    samurai::make_bc<samurai::Neumann>(vel, 0.0, 0.0)->on(bottom);
+    samurai::make_bc<samurai::Neumann>(p_bar, 0.0)->on(top);
+    samurai::make_bc<samurai::Neumann>(p_bar, 0.0)->on(bottom);
+    samurai::make_bc<samurai::Neumann>(c, 0.0)->on(top);
+    samurai::make_bc<samurai::Neumann>(c, 0.0)->on(bottom);
 }
 
 
@@ -139,7 +152,7 @@ bool TwoScale<dim>::check_apply_relaxation() const {
 template<std::size_t dim>
 void TwoScale<dim>::init_variables() {
   // Create conserved and auxiliary fields
-  conserved_variables = samurai::make_field<double, 7>("conserved", mesh);
+  conserved_variables = samurai::make_field<double, EquationData::NVARS>("conserved", mesh);
 
   rho        = samurai::make_field<double, 1>("rho", mesh);
   vel        = samurai::make_field<double, dim>("vel", mesh);
@@ -151,6 +164,7 @@ void TwoScale<dim>::init_variables() {
   rho2       = samurai::make_field<double, 1>("rho2", mesh);
   p_bar      = samurai::make_field<double, 1>("p_bar", mesh);
   c          = samurai::make_field<double, 1>("c", mesh);
+  alpha1_d   = samurai::make_field<double, 1>("alpha1_d", mesh);
 
   // Declare some constant parameters associated to the grid and to the
   // initial state
@@ -278,6 +292,8 @@ void TwoScale<dim>::init_variables() {
                                                   + conserved_variables[cell][M2_INDEX]*EOS_phase2.c_value(rho2[cell])*EOS_phase2.c_value(rho2[cell]);
                            c[cell] = std::sqrt(c_squared/rho[cell])/
                                      (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+
+                           alpha1_d[cell] = conserved_variables[cell][ALPHA1_D_INDEX];
                          });
 }
 
@@ -428,8 +444,11 @@ void TwoScale<dim>::apply_relaxation_linearized_EOS() {
 template<std::size_t dim>
 void TwoScale<dim>::apply_relaxation() {
   // Apply relaxation with Newton method
-  const double eps = 1e-9;
-  const double tol = 1e-5;
+  const double eps    = 1e-9; /*--- Tolerance of pure phase ---*/
+  const double tol    = 1e-3; /*--- Tolerance of the Newton method ---*/
+  const double lambda = 0.9;  /*--- Parameter for bound preserving strategy ---*/
+
+
   std::size_t Newton_iter = 0;
   bool relaxation_applied = true;
   while(relaxation_applied == true) {
@@ -461,8 +480,8 @@ void TwoScale<dim>::apply_relaxation() {
 
                                // Apply Newton method
                                const double dalpha1_bar = -F/dF;
-                               alpha1_bar[cell] += dalpha1_bar < 0 ? std::max(dalpha1_bar, -0.9*alpha1_bar[cell]) :
-                                                                     std::min(dalpha1_bar, 0.9*(1.0 - alpha1_bar[cell]));
+                               alpha1_bar[cell] += dalpha1_bar < 0 ? std::max(dalpha1_bar, -lambda*alpha1_bar[cell]) :
+                                                                     std::min(dalpha1_bar, lambda*(1.0 - alpha1_bar[cell]));
                              }
                            });
     if(Newton_iter > 50) {
@@ -523,6 +542,8 @@ void TwoScale<dim>::update_auxiliary_fields_post_relaxation() {
                                                   + conserved_variables[cell][M2_INDEX]*EOS_phase2.c_value(rho2[cell])*EOS_phase2.c_value(rho2[cell]);
                            c[cell] = std::sqrt(c_squared/rho[cell])/
                                      (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+
+                           alpha1_d[cell] = conserved_variables[cell][ALPHA1_D_INDEX];
                          });
 }
 
@@ -560,7 +581,7 @@ void TwoScale<dim>::run() {
   const double dt_save = Tf / static_cast<double>(nfiles);
 
   // Auxiliary variables to save updated fields
-  auto conserved_variables_np1 = samurai::make_field<double, 7>("conserved_np1", mesh);
+  auto conserved_variables_np1 = samurai::make_field<double, EquationData::NVARS>("conserved_np1", mesh);
 
   // Create the flux variable
   auto flux = samurai::make_two_scale<decltype(conserved_variables)>(vel, p_bar, c);
@@ -579,9 +600,6 @@ void TwoScale<dim>::run() {
   std::size_t nt    = 0;
   double t          = 0.0;
   while(t != Tf) {
-    // AMR adaptation
-    //adapt(1e-5, 0, conserved_variables, vel, p_bar, c, normal);
-
     t += dt;
     if(t > Tf) {
       dt += Tf - t;
@@ -590,26 +608,24 @@ void TwoScale<dim>::run() {
 
     std::cout << fmt::format("Iteration {}: t = {}, dt = {}", ++nt, t, dt) << std::endl;
 
+    // Perform mesh adaptation
+    auto MRadaptation = samurai::make_MRAdapt(alpha1_d);
+    MRadaptation(1e-5, 0, conserved_variables, rho, alpha1_bar, alpha2_bar, alpha1, rho1, alpha2, rho2, p_bar, c, vel);
+
     // Apply the numerical scheme without relaxation
     samurai::update_ghost_mr(conserved_variables, vel, p_bar, c);
     samurai::update_bc(conserved_variables, vel, p_bar, c);
-    auto flux_conserved     = flux(conserved_variables);
-    //conserved_variables_np1.resize();
+    auto flux_conserved = flux(conserved_variables);
+    conserved_variables_np1.resize();
     conserved_variables_np1 = conserved_variables - dt*flux_conserved;
 
     std::swap(conserved_variables.array(), conserved_variables_np1.array());
 
     // Update auxiliary useful fields which are not modified by relaxation
-    //rho.resize();
     update_auxiliary_fields_pre_relaxation();
-
-    // Compute updated time step
-    dx = samurai::cell_length(mesh[mesh_id_t::cells].max_level());
-    dt = std::min(dt, cfl*dx/get_max_lambda());
 
     // Apply relaxation if desired, which will modify alpha1_bar and, consequently, for what
     // concerns next time step, rho_alpha1_bar and p_bar
-    //alpha1_bar.resize();
     samurai::for_each_cell(mesh,
                            [&](const auto& cell)
                            {
@@ -620,14 +636,11 @@ void TwoScale<dim>::run() {
     }
 
     // Update auxiliary useful fields
-    /*alpha2_bar.resize();
-    alpha1.resize();
-    rho1.resize();
-    p1.resize();
-    alpha2.resize();
-    rho2.resize();
-    p2.resize();*/
     update_auxiliary_fields_post_relaxation();
+
+    // Compute updated time step
+    dx = samurai::cell_length(mesh[mesh_id_t::cells].max_level());
+    dt = std::min(dt, cfl*dx/get_max_lambda());
 
     // Save the results
     if(t >= static_cast<double>(nsave + 1) * dt_save || t == Tf) {

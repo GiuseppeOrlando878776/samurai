@@ -6,13 +6,11 @@
 // Main function to run the program
 //
 int main(int argc, char* argv[]) {
-  constexpr std::size_t dim = 2;
-
   // Mesh parameters
-  xt::xtensor_fixed<double, xt::xshape<dim>> min_corner = {0.0, 0.0};
-  xt::xtensor_fixed<double, xt::xshape<dim>> max_corner = {2.0, 1.0};
-  std::size_t min_level = 6;
-  std::size_t max_level = 6;
+  xt::xtensor_fixed<double, xt::xshape<EquationData::dim>> min_corner = {0.0, 0.0};
+  xt::xtensor_fixed<double, xt::xshape<EquationData::dim>> max_corner = {2.0, 1.0};
+  std::size_t min_level = 8;
+  std::size_t max_level = 8;
 
   // Simulation parameters
   double Tf  = 0.09;
