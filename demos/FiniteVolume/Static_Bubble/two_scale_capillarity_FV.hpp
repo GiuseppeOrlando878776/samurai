@@ -9,14 +9,14 @@ namespace EquationData {
   static constexpr double sigma = 1.0;
 
   // Declare some parameters related to EOS.
-  static constexpr double p0_phase1 = 1e5;
-  static constexpr double p0_phase2 = 1e5;
+  static constexpr double p0_phase1   = 1e5;
+  static constexpr double p0_phase2   = 1e5;
 
   static constexpr double rho0_phase1 = 1e3;
   static constexpr double rho0_phase2 = 1.0;
 
-  static constexpr double c0_phase1 = 1.5e3;
-  static constexpr double c0_phase2 = 1e2;
+  static constexpr double c0_phase1   = 1.5e3;
+  static constexpr double c0_phase2   = 1e2;
 
   // Use auxiliary variables for the indices for the sake of generality
   static constexpr std::size_t M1_INDEX             = 0;
@@ -126,11 +126,9 @@ namespace samurai {
                                                                     std::max(std::abs(vel[right](d) + c[right]*(1.0 + 0.125*r_R)),
                                                                              std::abs(vel[right](d) + c[right]*(1.0 + 0.125*r_R))));
 
-                                            res = 0.5*(f(field[left], vel[left], pres[left], norm_grad_alpha1_bar[left], normal[left]) +
-                                                       f(field[right], vel[right], pres[right], norm_grad_alpha1_bar[right], normal[right])) -
-                                                  0.5*lambda*(field[right] - field[left]);
-
-                                            return res;
+                                            return 0.5*(f(field[left], vel[left], pres[left], norm_grad_alpha1_bar[left], normal[left]) +
+                                                        f(field[right], vel[right], pres[right], norm_grad_alpha1_bar[right], normal[right])) -
+                                                   0.5*lambda*(field[right] - field[left]);
                                           };
     });
 

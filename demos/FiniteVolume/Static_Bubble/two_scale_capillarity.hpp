@@ -15,8 +15,7 @@ namespace fs = std::filesystem;
 
 #include "two_scale_capillarity_FV.hpp"
 
-#include <samurai/algorithm/graduation.hpp>
-#include <samurai/amr/mesh.hpp>
+#include <samurai/mr/adapt.hpp>
 
 // Specify the use of this namespace where we just store the indices
 // and, in this case, some parameters related to EOS
@@ -27,7 +26,7 @@ using namespace EquationData;
 template<std::size_t dim>
 class StaticBubble {
 public:
-  using Config = samurai::amr::Config<dim>;
+  using Config = samurai::MRConfig<dim>;
 
   StaticBubble() = default; // Default constructor. This will do nothing
                             // and basically will never be used
@@ -52,7 +51,7 @@ private:
   /*--- Now we declare some relevant variables ---*/
   const samurai::Box<double, dim> box;
 
-  samurai::amr::Mesh<Config> mesh; // Variable to store the mesh
+  samurai::MRMesh<Config> mesh; // Variable to store the mesh
   using mesh_id_t = typename decltype(mesh)::mesh_id_t;
 
   using Field        = samurai::Field<decltype(mesh), double, EquationData::NVARS, false>;
@@ -94,10 +93,10 @@ private:
              normal,
              grad_alpha1_bar;
 
-  using gradient_type = decltype(samurai::make_gradient<decltype(alpha1_bar)>());
+  using gradient_type = decltype(samurai::make_gradient_order2<decltype(alpha1_bar)>());
   gradient_type gradient;
 
-  using divergence_type = decltype(samurai::make_divergence<decltype(normal)>());
+  using divergence_type = decltype(samurai::make_divergence_order2<decltype(normal)>());
   divergence_type divergence;
 
   double eps;                     // Tolerance when we want to avoid division by zero
@@ -126,10 +125,10 @@ StaticBubble<dim>::StaticBubble(const xt::xtensor_fixed<double, xt::xshape<dim>>
                                 std::size_t min_level, std::size_t max_level,
                                 double Tf_, double cfl_, std::size_t nfiles_,
                                 bool apply_relax_):
-  box(min_corner, max_corner), mesh(box, max_level, min_level, max_level),
+  box(min_corner, max_corner), mesh(box, min_level, max_level, {false, false}),
   apply_relax(apply_relax_), Tf(Tf_), cfl(cfl_), nfiles(nfiles_),
-  gradient(samurai::make_gradient<decltype(alpha1_bar)>()),
-  divergence(samurai::make_divergence<decltype(normal)>()),
+  gradient(samurai::make_gradient_order2<decltype(alpha1_bar)>()),
+  divergence(samurai::make_divergence_order2<decltype(normal)>()),
   eps(1e-9), mod_grad_alpha1_bar_min(0.0) {
     EOS_phase1 = LinearizedBarotropicEOS(EquationData::p0_phase1, EquationData::rho0_phase1, EquationData::c0_phase1);
     EOS_phase2 = LinearizedBarotropicEOS(EquationData::p0_phase2, EquationData::rho0_phase2, EquationData::c0_phase2);
@@ -143,7 +142,7 @@ StaticBubble<dim>::StaticBubble(const xt::xtensor_fixed<double, xt::xshape<dim>>
 //
 template<std::size_t dim>
 void StaticBubble<dim>::update_geometry() {
-  samurai::update_ghost(alpha1_bar);
+  samurai::update_ghost_mr(alpha1_bar);
   grad_alpha1_bar = gradient(alpha1_bar);
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
@@ -159,7 +158,7 @@ void StaticBubble<dim>::update_geometry() {
                              }
                            }
                          });
-  samurai::update_ghost(normal);
+  samurai::update_ghost_mr(normal);
   H = -divergence(normal);
 }
 
@@ -518,10 +517,14 @@ void StaticBubble<dim>::run() {
 
     std::cout << fmt::format("Iteration {}: t = {}, dt = {}", ++nt, t, dt) << std::endl;
 
+    auto MRadaptation = samurai::make_MRAdapt(alpha1_bar);
+    MRadaptation(1e-5, 0, conserved_variables, vel, p_bar, c, mod_grad_alpha1_bar, normal, rho, alpha1, rho1, p1, alpha2, rho2, p2, grad_alpha1_bar, H, alpha2_bar);
+
     // Apply the numerical scheme without relaxation
-    samurai::update_ghost(conserved_variables, vel, p_bar, c, mod_grad_alpha1_bar, normal);
+    samurai::update_ghost_mr(conserved_variables, vel, p_bar, c, mod_grad_alpha1_bar, normal);
     samurai::update_bc(conserved_variables, vel, p_bar, c, mod_grad_alpha1_bar, normal);
     auto flux_conserved = flux(conserved_variables);
+    conserved_variables_np1.resize();
     conserved_variables_np1 = conserved_variables - dt*flux_conserved;
 
     std::swap(conserved_variables.array(), conserved_variables_np1.array());
