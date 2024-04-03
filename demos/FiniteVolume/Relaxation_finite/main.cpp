@@ -3,6 +3,7 @@
 // license that can be found in the LICENSE file.
 //
 #include "relaxation.hpp"
+//#include "Rusanov.hpp"
 
 // Main function to run the program
 //
@@ -21,10 +22,15 @@ int main(int argc, char* argv[]) {
   std::size_t nfiles = 100;
 
   // Create the instance of the class to perform the simulation
-  auto Relaxation_Rusanov_Sim = Relaxation(min_corner, max_corner, min_level, max_level,
-                                           Tf, cfl, nfiles);
+  auto Relaxation_Sim = Relaxation(min_corner, max_corner, min_level, max_level,
+                                   Tf, cfl, nfiles);
 
-  Relaxation_Rusanov_Sim.run();
+  Relaxation_Sim.run();
+
+  /*auto Rusanov_Sim = Rusanov(min_corner, max_corner, min_level, max_level,
+                             Tf, cfl, nfiles);
+
+  Rusanov_Sim.run();*/
 
   return 0;
 }

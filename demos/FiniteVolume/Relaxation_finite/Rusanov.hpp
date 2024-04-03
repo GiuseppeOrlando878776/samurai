@@ -23,20 +23,20 @@ using namespace EquationData;
 // This is the class for the simulation of a two-scale model
 //
 template<std::size_t dim>
-class Relaxation {
+class Rusanov {
 public:
   using Config = samurai::MRConfig<dim>;
 
-  Relaxation() = default; // Default constructor. This will do nothing
+  Rusanov() = default; // Default constructor. This will do nothing
                           // and basically will never be used
 
-  Relaxation(const xt::xtensor_fixed<double, xt::xshape<dim>>& min_corner,
-             const xt::xtensor_fixed<double, xt::xshape<dim>>& max_corner,
-             std::size_t min_level, std::size_t max_level,
-             double Tf_, double cfl_, std::size_t nfiles_ = 100);  // Class constrcutor with the arguments related
-                                                                   // to the grid and to the physics.
-                                                                   // Maybe in the future,
-                                                                   // we could think to add parameters related to EOS
+  Rusanov(const xt::xtensor_fixed<double, xt::xshape<dim>>& min_corner,
+          const xt::xtensor_fixed<double, xt::xshape<dim>>& max_corner,
+          std::size_t min_level, std::size_t max_level,
+          double Tf_, double cfl_, std::size_t nfiles_ = 100);  // Class constrcutor with the arguments related
+                                                                // to the grid and to the physics.
+                                                                // Maybe in the future,
+                                                                // we could think to add parameters related to EOS
 
   void run(); // Function which actually executes the temporal loop
 
@@ -67,8 +67,11 @@ private:
   const SG_EOS<> EOS_phase1; // Equation of state of phase 1
   const SG_EOS<> EOS_phase2; // Equation of state of phase 2
 
-  samurai::RelaxationFlux<Field> numerical_flux; // function to compute the numerical flux
-                                                 // (this is necessary to call 'make_flux')
+  samurai::RusanovFlux<Field> numerical_flux_cons; // function to compute the numerical flux for the conservative part
+                                                   // (this is necessary to call 'make_flux')
+
+  samurai::NonConservativeFlux<Field> numerical_flux_non_cons; // function to compute the numerical flux for the non-conservative part
+                                                               // (this is necessary to call 'make_flux')
 
   // Now we declare a bunch of fields which depend from the state, but it is useful
   // to have it for the output
@@ -96,15 +99,16 @@ private:
 // Implement class constructor
 //
 template<std::size_t dim>
-Relaxation<dim>::Relaxation(const xt::xtensor_fixed<double, xt::xshape<dim>>& min_corner,
-                            const xt::xtensor_fixed<double, xt::xshape<dim>>& max_corner,
-                            std::size_t min_level, std::size_t max_level,
-                            double Tf_, double cfl_, std::size_t nfiles_):
+Rusanov<dim>::Rusanov(const xt::xtensor_fixed<double, xt::xshape<dim>>& min_corner,
+                      const xt::xtensor_fixed<double, xt::xshape<dim>>& max_corner,
+                      std::size_t min_level, std::size_t max_level,
+                      double Tf_, double cfl_, std::size_t nfiles_):
   box(min_corner, max_corner), mesh(box, min_level, max_level, {false}),
   Tf(Tf_), cfl(cfl_), nfiles(nfiles_),
   EOS_phase1(EquationData::gamma_1, EquationData::pi_infty_1, EquationData::q_infty_1),
   EOS_phase2(EquationData::gamma_2, EquationData::pi_infty_2, EquationData::q_infty_2),
-  numerical_flux(EOS_phase1, EOS_phase2) {
+  numerical_flux_cons(EOS_phase1, EOS_phase2),
+  numerical_flux_non_cons(EOS_phase1, EOS_phase2) {
     init_variables();
 }
 
@@ -112,7 +116,7 @@ Relaxation<dim>::Relaxation(const xt::xtensor_fixed<double, xt::xshape<dim>>& mi
 // Initialization of conserved and auxiliary variables
 //
 template<std::size_t dim>
-void Relaxation<dim>::init_variables() {
+void Rusanov<dim>::init_variables() {
   // Create conserved and auxiliary fields
   conserved_variables = samurai::make_field<double, EquationData::NVARS>("conserved", mesh);
 
@@ -140,7 +144,7 @@ void Relaxation<dim>::init_variables() {
                            const double x    = center[0];
 
                            if(x <= xd) {
-                             conserved_variables[cell][ALPHA1_INDEX] = 0.5;
+                             conserved_variables[cell][ALPHA1_INDEX] = 0.8;
 
                              rho1[cell] = 0.21340;
                              vel1[cell] = -0.02609;
@@ -151,7 +155,7 @@ void Relaxation<dim>::init_variables() {
                              p2[cell]   = 1.0;
                            }
                            else {
-                             conserved_variables[cell][ALPHA1_INDEX] = 0.5;
+                             conserved_variables[cell][ALPHA1_INDEX] = 0.3;
 
                              rho1[cell] = 0.96964;
                              vel1[cell] = -0.03629;
@@ -191,7 +195,7 @@ void Relaxation<dim>::init_variables() {
 // Compute the estimate of the maximum eigenvalue for CFL condition
 //
 template<std::size_t dim>
-double Relaxation<dim>::get_max_lambda() const {
+double Rusanov<dim>::get_max_lambda() const {
   double res = 0.0;
 
   samurai::for_each_cell(mesh,
@@ -209,7 +213,7 @@ double Relaxation<dim>::get_max_lambda() const {
 // Update auxiliary fields after solutino of the system
 //
 template<std::size_t dim>
-void Relaxation<dim>::update_auxiliary_fields() {
+void Rusanov<dim>::update_auxiliary_fields() {
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
                          {
@@ -244,7 +248,7 @@ void Relaxation<dim>::update_auxiliary_fields() {
 //
 template<std::size_t dim>
 template<class... Variables>
-void Relaxation<dim>::save(const fs::path& path,
+void Rusanov<dim>::save(const fs::path& path,
                          const std::string& filename,
                          const std::string& suffix,
                          const Variables&... fields) {
@@ -267,17 +271,18 @@ void Relaxation<dim>::save(const fs::path& path,
 // Implement the function that effectively performs the temporal loop
 //
 template<std::size_t dim>
-void Relaxation<dim>::run() {
+void Rusanov<dim>::run() {
   // Default output arguemnts
   fs::path path        = fs::current_path();
-  std::string filename = "Relaxation_Suliciu";
+  std::string filename = "Rusanov_Rusanov";
   const double dt_save = Tf / static_cast<double>(nfiles);
 
   // Auxiliary variables to save updated fields
   auto conserved_variables_np1 = samurai::make_field<double, EquationData::NVARS>("conserved_np1", mesh);
 
   // Create the flux variables
-  auto Suliciu_flux = numerical_flux.make_flux();
+  auto Rusanov_flux         = numerical_flux_cons.make_flux();
+  auto NonConservative_flux = numerical_flux_non_cons.make_flux();
 
   // Save the initial condition
   const std::string suffix_init = (nfiles != 1) ? "_ite_0" : "";
@@ -304,8 +309,9 @@ void Relaxation<dim>::run() {
     // Apply the numerical scheme
     samurai::update_ghost_mr(conserved_variables);
     samurai::update_bc(conserved_variables);
-    auto Relaxation_Flux = Suliciu_flux(conserved_variables);
-    conserved_variables_np1 = conserved_variables - dt*Relaxation_Flux;
+    auto Cons_Flux    = Rusanov_flux(conserved_variables);
+    auto NonCons_Flux = NonConservative_flux(conserved_variables);
+    conserved_variables_np1 = conserved_variables - dt*Cons_Flux - dt*NonCons_Flux;
 
     std::swap(conserved_variables.array(), conserved_variables_np1.array());
 
