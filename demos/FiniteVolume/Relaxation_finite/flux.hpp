@@ -485,8 +485,8 @@ namespace samurai {
     const auto p2R     = this->phase2.pres_value(rho2R, e2R);
 
     // Compute first guess of relaxation related parameters (Whitham's approach)
-    auto a1 = std::max(this->phase1.c_value(rho1L, e1L)*rho1L, this->phase1.c_value(rho1R, e1R)*rho1R);
-    auto a2 = std::max(this->phase2.c_value(rho2L, e2L)*rho2L, this->phase2.c_value(rho2R, e2R)*rho2R);
+    auto a1 = std::max(this->phase1.c_value(rho1L, p1L)*rho1L, this->phase1.c_value(rho1R, p1R)*rho1R);
+    auto a2 = std::max(this->phase2.c_value(rho2L, p2L)*rho2L, this->phase2.c_value(rho2R, p2R)*rho2R);
 
     /*--- Compute the transport step solving a non-linear equation with the Newton method ---*/
 
@@ -516,7 +516,7 @@ namespace samurai {
     field_type guess = 0.0, sup = 0.0, inf = 0.0;
     const double mu = 0.02;
     // Impose inequality (3.39) in Saleh ESAIM 2019
-    while(guess - inf <= mu*(sup - inf) || sup - guess <= mu*(sup - inf)) {
+    do {
       if(vel1_diesis - a1*tau1L_diesis > vel2_diesis - a2*tau2L_diesis &&
          vel1_diesis + a1*tau1R_diesis < vel2_diesis + a2*tau2R_diesis) {
         a1           *= fact;
@@ -552,6 +552,7 @@ namespace samurai {
       sup = Psi(cRmin, a1, alpha1L, alpha1R, vel1_diesis, tau1L_diesis, tau1R_diesis,
                        a2, alpha2L, alpha1R, vel2_diesis, tau2L_diesis, tau2R_diesis);
     }
+    while(guess - inf <= mu*(sup - inf) || sup - guess <= mu*(sup - inf));
 
     const double eps   = 1e-7; // Newton tolerance
     const auto uI_star = Newton(guess, a1, alpha1L, alpha1R, vel1_diesis, tau1L_diesis, tau1R_diesis,
@@ -661,8 +662,8 @@ namespace samurai {
     const auto p2R     = this->phase2.pres_value(rho2R, e2R);
 
     // Compute first guess of constant parameters related to relaxation (Whitham's approach)
-    auto a1 = std::max(this->phase1.c_value(rho1L, e1L)*rho1L, this->phase1.c_value(rho1R, e1R)*rho1R);
-    auto a2 = std::max(this->phase2.c_value(rho2L, e2L)*rho2L, this->phase2.c_value(rho2R, e2R)*rho2R);
+    auto a1 = std::max(this->phase1.c_value(rho1L, p1L)*rho1L, this->phase1.c_value(rho1R, p1R)*rho1R);
+    auto a2 = std::max(this->phase2.c_value(rho2L, p2L)*rho2L, this->phase2.c_value(rho2R, p2R)*rho2R);
 
     /*--- Compute the transport step solving a non-linear equation with the Newton method ---*/
 
@@ -692,7 +693,7 @@ namespace samurai {
     field_type guess = 0.0, sup = 0.0, inf = 0.0;
     const double mu = 0.02;
     // Impose inequality (3.39) in Saleh ESAIM 2019
-    while(guess - inf <= mu*(sup - inf) || sup - guess <= mu*(sup - inf)) {
+    do {
       if(vel1_diesis - a1*tau1L_diesis > vel2_diesis - a2*tau2L_diesis &&
          vel1_diesis + a1*tau1R_diesis < vel2_diesis + a2*tau2R_diesis) {
         a1           *= fact;
@@ -728,6 +729,7 @@ namespace samurai {
       sup = Psi(cRmin, a1, alpha1L, alpha1R, vel1_diesis, tau1L_diesis, tau1R_diesis,
                        a2, alpha2L, alpha1R, vel2_diesis, tau2L_diesis, tau2R_diesis);
     }
+    while(guess - inf <= mu*(sup - inf) || sup - guess <= mu*(sup - inf));
 
     const double eps   = 1e-7; // Newton tolerance
     const auto uI_star = Newton(guess, a1, alpha1L, alpha1R, vel1_diesis, tau1L_diesis, tau1R_diesis,
@@ -856,7 +858,7 @@ namespace samurai {
   template<class Field>
   template<typename T>
   inline T RelaxationFlux<Field>::dM0_dMe(const T nu, const T Me) const {
-    const T w = (1.0 - Me)/(1.0 - Me);
+    const T w = (1.0 - Me)/(1.0 + Me);
 
     return 4.0/(nu + 1.0)*w/((1.0 + w*w)*(1.0 + w*w))*(1.0 + w)*(1.0 + w)/
            (1.0 - 4.0*nu/((nu + 1.0)*(nu + 1.0))*(1.0 - w*w)*(1.0 - w*w)/((1.0 + w*w)*(1.0 + w*w)) +
@@ -1092,7 +1094,7 @@ namespace samurai {
     }
     else {
       if(w_diesis < 0.0) {
-        Riemann_solver_phase_pI_m(-xi,
+        Riemann_solver_phase_pI_p(-xi,
                                   alphaR, alphaL, tauR, tauL, -wR, -wL, pR, pL, ER, EL,
                                   -w_diesis, pI_diesis, tauR_diesis, tauL_diesis, a,
                                   alpha_m, tau_m, w_m, pres_m, E_m);
@@ -1116,7 +1118,7 @@ namespace samurai {
           }
           else {
             if((xi > 0.0 && xi < wR + a*tauR) || (xi == wR + a*tauR)) {
-              alpha_m = alphaL;
+              alpha_m = alphaR;
               tau_m   = tauR_diesis;
               w_m     = 0.0;
               pres_m  = pR - a*(wR - w_m);
@@ -1219,7 +1221,7 @@ namespace samurai {
     }
     else {
       if(w_diesis < 0.0) {
-        Riemann_solver_phase_pI_p(-xi,
+        Riemann_solver_phase_pI_m(-xi,
                                   alphaR, alphaL, tauR, tauL, -wR, -wL, pR, pL, ER, EL,
                                   -w_diesis, pI_diesis, tauR_diesis, tauL_diesis, a,
                                   alpha_p, tau_p, w_p, pres_p, E_p);
@@ -1243,7 +1245,7 @@ namespace samurai {
           }
           else {
             if((xi == 0.0) || (xi > 0.0 && xi < wR + a*tauR)) {
-              alpha_p = alphaL;
+              alpha_p = alphaR;
               tau_p   = tauR_diesis;
               w_p     = 0.0;
               pres_p  = pR - a*(wR - w_p);

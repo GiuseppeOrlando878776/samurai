@@ -146,24 +146,24 @@ void Rusanov<dim>::init_variables() {
                            if(x <= xd) {
                              conserved_variables[cell][ALPHA1_INDEX] = 0.8;
 
-                             rho1[cell] = 0.21340;
-                             vel1[cell] = -0.02609;
-                             p1[cell]   = 0.3;
+                             rho1[cell] = 1.00003;
+                             vel1[cell] = 0.00007;
+                             p1[cell]   = 1.0;
 
-                             rho2[cell] = 1.00003;
-                             vel2[cell] = 0.00007;
-                             p2[cell]   = 1.0;
+                             rho2[cell] = 0.21340;
+                             vel2[cell] = -0.02609;
+                             p2[cell]   = 0.3;
                            }
                            else {
                              conserved_variables[cell][ALPHA1_INDEX] = 0.3;
 
-                             rho1[cell] = 0.96964;
-                             vel1[cell] = -0.03629;
-                             p1[cell]   = 0.95776;
+                             rho1[cell] = 0.99993;
+                             vel1[cell] = -0.00004;
+                             p1[cell]   = 1.0;
 
-                             rho2[cell] = 0.99993;
-                             vel2[cell] = -0.00004;
-                             p2[cell]   = 1.0;
+                             rho2[cell] = 0.96964;
+                             vel2[cell] = -0.03629;
+                             p2[cell]   = 0.95776;
                            }
 
                            conserved_variables[cell][ALPHA1_RHO1_INDEX]    = conserved_variables[cell][ALPHA1_INDEX]*rho1[cell];
@@ -274,7 +274,7 @@ template<std::size_t dim>
 void Rusanov<dim>::run() {
   // Default output arguemnts
   fs::path path        = fs::current_path();
-  std::string filename = "Rusanov_Rusanov";
+  std::string filename = "Relaxation_Rusanov";
   const double dt_save = Tf / static_cast<double>(nfiles);
 
   // Auxiliary variables to save updated fields
