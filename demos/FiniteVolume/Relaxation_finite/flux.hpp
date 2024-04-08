@@ -367,13 +367,11 @@ namespace samurai {
   public:
     RelaxationFlux(const EOS<>& EOS_phase1, const EOS<>& EOS_phase2); // Construction which accepts in inputs the equations of stae of the two phases
 
-    FluxValue<typename Flux<Field>::cfg> compute_discrete_flux_left_right(const FluxValue<typename Flux<Field>::cfg>& qL,
-                                                                          const FluxValue<typename Flux<Field>::cfg>& qR,
-                                                                          const std::size_t curr_d); // Flux from left to right
-
-    FluxValue<typename Flux<Field>::cfg> compute_discrete_flux_right_left(const FluxValue<typename Flux<Field>::cfg>& qL,
-                                                                          const FluxValue<typename Flux<Field>::cfg>& qR,
-                                                                          const std::size_t curr_d); // Flux from right to left
+    void compute_discrete_flux(const FluxValue<typename Flux<Field>::cfg>& qL,
+                               const FluxValue<typename Flux<Field>::cfg>& qR,
+                               const std::size_t curr_d,
+                               FluxValue<typename Flux<Field>::cfg>& F_minus,
+                               FluxValue<typename Flux<Field>::cfg>& F_plus); // Compute discrete flux
 
     auto make_flux(); // Compute the flux over all cells
 
@@ -403,26 +401,18 @@ namespace samurai {
                             const T a2, const T alpha2L, const T alpha2R, const T vel2_diesis, const T tau2L_diesis, const T tau2R_diesis, const double eps) const;
 
     template<typename T>
-    void Riemann_solver_phase_vI_m(const T xi,
-                                   const T alphaL, const T alphaR, const T tauL, const T tauR, const T wL, const T wR, const T pL, const T pR, const T EL, const T ER,
-                                   const T a, const T u_star, T& alpha_m, T& tau_m, T& w_m, T& pres_m, T& E_m);
+    void Riemann_solver_phase_vI(const T xi,
+                                 const T alphaL, const T alphaR, const T tauL, const T tauR, const T wL, const T wR, const T pL, const T pR, const T EL, const T ER,
+                                 const T a, const T u_star,
+                                 T& alpha_m, T& tau_m, T& w_m, T& pres_m, T& E_m,
+                                 T& alpha_p, T& tau_p, T& w_p, T& pres_p, T& E_p);
 
     template<typename T>
-    void Riemann_solver_phase_vI_p(const T xi,
-                                   const T alphaL, const T alphaR, const T tauL, const T tauR, const T wL, const T wR, const T pL, const T pR, const T EL, const T ER,
-                                   const T a, const T u_star, T& alpha_p, T& tau_p, T& w_p, T& pres_p, T& E_p);
-
-    template<typename T>
-    void Riemann_solver_phase_pI_m(const T xi,
-                                   const T alphaL, const T alphaR, const T tauL, const T tauR, const T wL, const T wR, const T pL, const T pR, const T EL, const T ER,
-                                   const T w_diesis, const T pI_diesis, const T tauL_diesis, const T tauR_diesis, const T a,
-                                   T& alpha_m, T& tau_m, T& w_m, T& pres_m, T& E_m);
-
-    template<typename T>
-    void Riemann_solver_phase_pI_p(const T xi,
-                                   const T alphaL, const T alphaR, const T tauL, const T tauR, const T wL, const T wR, const T pL, const T pR, const T EL, const T ER,
-                                   const T w_diesis, const T pI_diesis, const T tauL_diesis, const T tauR_diesis, const T a,
-                                   T& alpha_p, T& tau_p, T& w_p, T& pres_p, T& E_p);
+    void Riemann_solver_phase_pI(const T xi,
+                                 const T alphaL, const T alphaR, const T tauL, const T tauR, const T wL, const T wR, const T pL, const T pR, const T EL, const T ER,
+                                 const T w_diesis, const T pI_diesis, const T tauL_diesis, const T tauR_diesis, const T a,
+                                 T& alpha_m, T& tau_m, T& w_m, T& pres_m, T& E_m,
+                                 T& alpha_p, T& tau_p, T& w_p, T& pres_p, T& E_p);
   };
 
 
@@ -435,11 +425,11 @@ namespace samurai {
   // Implementation of the flux from left to right (F^{+} in Saleh 2012 notation)
   //
   template<class Field>
-  FluxValue<typename Flux<Field>::cfg> RelaxationFlux<Field>::compute_discrete_flux_left_right(const FluxValue<typename Flux<Field>::cfg>& qL,
-                                                                                               const FluxValue<typename Flux<Field>::cfg>& qR,
-                                                                                               std::size_t curr_d) {
-    FluxValue<typename Flux<Field>::cfg> res;
-
+  void RelaxationFlux<Field>::compute_discrete_flux(const FluxValue<typename Flux<Field>::cfg>& qL,
+                                                    const FluxValue<typename Flux<Field>::cfg>& qR,
+                                                    std::size_t curr_d,
+                                                    FluxValue<typename Flux<Field>::cfg>& F_minus,
+                                                    FluxValue<typename Flux<Field>::cfg>& F_plus) {
     // Compute the relevant variables from left state for phase 1
     const auto alpha1L = qL(ALPHA1_INDEX);
     const auto rho1L   = qL(ALPHA1_RHO1_INDEX)/alpha1L; /*--- TODO: Add treatment for vanishing volume fraction ---*/
@@ -558,232 +548,70 @@ namespace samurai {
     const auto uI_star = Newton(guess, a1, alpha1L, alpha1R, vel1_diesis, tau1L_diesis, tau1R_diesis,
                                        a2, alpha2L, alpha1R, vel2_diesis, tau2L_diesis, tau2R_diesis, eps);
 
-    field_type alpha1_p, tau1_p, u1_p, p1_p, E1_p,
-               alpha2_p, tau2_p, u2_p, p2_p, E2_p, w2_p;
-    Riemann_solver_phase_pI_p(-uI_star,
-                              alpha2L, alpha2R, 1.0/rho2L, 1.0/rho2R, vel2L_d - uI_star, vel2R_d - uI_star,
-                              p2L, p2R, E2L - (vel2L_d - uI_star)*uI_star - 0.5*uI_star*uI_star, E2R - (vel2R_d - uI_star)*uI_star - 0.5*uI_star*uI_star,
-                              vel2_diesis - uI_star, p2_diesis, tau2L_diesis, tau2R_diesis, a2,
-                              alpha2_p, tau2_p, w2_p, p2_p, E2_p);
-    u2_p = w2_p + uI_star;
-  	E2_p += (u2_p - uI_star)*uI_star + 0.5*uI_star*uI_star;
-    Riemann_solver_phase_vI_p(0.0,
-                              alpha1L, alpha1R, 1.0/rho1L, 1.0/rho1R, vel1L_d, vel1R_d, p1L, p1R, E1L, E1R,
-                              a1, uI_star, alpha1_p, tau1_p, u1_p, p1_p, E1_p);
-
-    // Build the flux
-    res(ALPHA1_INDEX) = 0.0;
-    res(ALPHA1_RHO1_INDEX) = alpha1_p/tau1_p*u1_p;
-    res(ALPHA1_RHO1_U1_INDEX) = alpha1_p/tau1_p*u1_p*u1_p;
-    if(EquationData::dim > 1) {
-      for(std::size_t d = 1; d < EquationData::dim; ++d) {
-        res(ALPHA1_RHO1_U1_INDEX + d) = alpha1_p/tau1_p*u1_p*u1_p;
-      }
-    }
-    res(ALPHA1_RHO1_U1_INDEX + curr_d) += alpha1_p*p1_p;
-    res(ALPHA1_RHO1_E1_INDEX) = alpha1_p/tau1_p*E1_p*u1_p + alpha1_p*p1_p*u1_p;
-    res(ALPHA2_RHO2_INDEX) = alpha2_p/tau2_p*u2_p;
-    res(ALPHA2_RHO2_U2_INDEX) = alpha2_p/tau2_p*u2_p*u2_p;
-    if(EquationData::dim > 1) {
-      for(std::size_t d = 1; d < EquationData::dim; ++d) {
-        res(ALPHA2_RHO2_U2_INDEX + d) = alpha2_p/tau2_p*u2_p*u2_p;
-      }
-    }
-    res(ALPHA2_RHO2_U2_INDEX + curr_d) += alpha2_p*p2_p;
-    res(ALPHA2_RHO2_E2_INDEX) = alpha2_p/tau2_p*E2_p*u2_p + alpha2_p*p2_p*u2_p;
-
-    if(uI_star > 0.0) {
-      const auto pidx_alpha2 = p2_diesis*(alpha2R - alpha2L) + psi(uI_star, a2, alpha2L, alpha2R, vel2_diesis, tau2L_diesis, tau2R_diesis);
-
-      res(ALPHA1_INDEX)                  -= uI_star*(alpha1R - alpha1L);
-
-      res(ALPHA1_RHO1_U1_INDEX + curr_d) -= pidx_alpha2;
-      res(ALPHA1_RHO1_E1_INDEX)          -= uI_star*pidx_alpha2;
-
-      res(ALPHA2_RHO2_U2_INDEX + curr_d) += pidx_alpha2;
-      res(ALPHA2_RHO2_E2_INDEX)          += uI_star*pidx_alpha2;
-    }
-
-    // Build the flux
-    return res;
-  }
-
-
-  // Implementation the flux from right to left (F^{-} in Saleh 2012 notation)
-  //
-  template<class Field>
-  FluxValue<typename Flux<Field>::cfg> RelaxationFlux<Field>::compute_discrete_flux_right_left(const FluxValue<typename Flux<Field>::cfg>& qL,
-                                                                                               const FluxValue<typename Flux<Field>::cfg>& qR,
-                                                                                               std::size_t curr_d) {
-    FluxValue<typename Flux<Field>::cfg> res;
-
-    // Compute the relevant variables from left state for phase 1
-    const auto alpha1L = qL(ALPHA1_INDEX);
-    const auto rho1L   = qL(ALPHA1_RHO1_INDEX)/alpha1L; /*--- TODO: Add treatment for vanishing volume fraction ---*/
-    const auto vel1L_d = qL(ALPHA1_RHO1_U1_INDEX + curr_d)/rho1L; /*--- TODO: Add treatment for vanishing volume fraction ---*/
-    const auto E1L     = qL(ALPHA1_RHO1_E1_INDEX)/qL(ALPHA1_RHO1_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
-    auto e1L           = E1L;
-    for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e1L -= 0.5*(qL(ALPHA1_RHO1_U1_INDEX + d)/qL(ALPHA1_RHO1_INDEX))*(qL(ALPHA1_RHO1_U1_INDEX + d)/qL(ALPHA1_RHO1_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
-    }
-    const auto p1L     = this->phase1.pres_value(rho1L, e1L);
-
-    // Compute the relevant variables from right state for phase 1
-    const auto alpha1R = qR(ALPHA1_INDEX);
-    const auto rho1R   = qR(ALPHA1_RHO1_INDEX)/alpha1R; /*--- TODO: Add treatment for vanishing volume fraction ---*/
-    const auto vel1R_d = qR(ALPHA1_RHO1_U1_INDEX + curr_d)/rho1R; /*--- TODO: Add treatment for vanishing volume fraction ---*/
-    const auto E1R     = qR(ALPHA1_RHO1_E1_INDEX)/qR(ALPHA1_RHO1_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
-    auto e1R           = E1R;
-    for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e1R -= 0.5*(qR(ALPHA1_RHO1_U1_INDEX + d)/qR(ALPHA1_RHO1_INDEX))*(qR(ALPHA1_RHO1_U1_INDEX + d)/qR(ALPHA1_RHO1_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
-    }
-    const auto p1R     = this->phase1.pres_value(rho1R, e1R);
-
-    // Compute the relevant variables from left state for phase 2
-    const auto alpha2L = 1.0 - alpha1L;
-    const auto rho2L   = qL(ALPHA2_RHO2_INDEX)/alpha2L; /*--- TODO: Add treatment for vanishing volume fraction ---*/
-    const auto vel2L_d = qL(ALPHA2_RHO2_U2_INDEX + curr_d)/rho2L; /*--- TODO: Add treatment for vanishing volume fraction ---*/
-    const auto E2L     = qL(ALPHA2_RHO2_E2_INDEX)/qL(ALPHA2_RHO2_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
-    auto e2L           = E2L;
-    for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e2L -= 0.5*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX))*(qL(ALPHA2_RHO2_U2_INDEX + d)/qL(ALPHA2_RHO2_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
-    }
-    const auto p2L     = this->phase2.pres_value(rho2L, e2L);
-
-    // Compute the relevant variables from right state for phase 2
-    const auto alpha2R = 1.0 - alpha1R;
-    const auto rho2R   = qR(ALPHA2_RHO2_INDEX)/alpha2R; /*--- TODO: Add treatment for vanishing volume fraction ---*/
-    const auto vel2R_d = qR(ALPHA2_RHO2_U2_INDEX + curr_d)/rho2R; /*--- TODO: Add treatment for vanishing volume fraction ---*/
-    const auto E2R     = qR(ALPHA2_RHO2_E2_INDEX)/qR(ALPHA2_RHO2_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
-    auto e2R           = E2R;
-    for(std::size_t d = 0; d < EquationData::dim; ++d) {
-      e2R -= 0.5*(qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX))*(qR(ALPHA2_RHO2_U2_INDEX + d)/qR(ALPHA2_RHO2_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
-    }
-    const auto p2R     = this->phase2.pres_value(rho2R, e2R);
-
-    // Compute first guess of constant parameters related to relaxation (Whitham's approach)
-    auto a1 = std::max(this->phase1.c_value(rho1L, p1L)*rho1L, this->phase1.c_value(rho1R, p1R)*rho1R);
-    auto a2 = std::max(this->phase2.c_value(rho2L, p2L)*rho2L, this->phase2.c_value(rho2R, p2R)*rho2R);
-
-    /*--- Compute the transport step solving a non-linear equation with the Newton method ---*/
-
-    // Compute "diesis" state (formulas (3.21) in Saleh ESAIM 2019, starting point for subsonic wave)
-    using field_type = decltype(a2);
-    field_type vel1_diesis, p1_diesis, tau1L_diesis = 0.0, tau1R_diesis = 0.0; /*--- NOTE: tau denotes the specific volume ,i.e. the inverse of the density ---*/
-    field_type vel2_diesis, p2_diesis, tau2L_diesis = 0.0, tau2R_diesis = 0.0;
-
-    const double fact = 1.01; // Safety factor
-    // Loop to be sure that tau_diesis variables are positive (theorem 3.5, Coquel et al. JCP 2017)
-    while(tau1L_diesis <= 0.0 || tau1R_diesis <= 0.0) {
-      a1           *= fact;
-      vel1_diesis  = 0.5*(vel1L_d + vel1R_d) - 0.5*(p1R - p1L)/a1;
-      p1_diesis    = 0.5*(p1R + p1L) - 0.5*a1*(vel1R_d - vel1L_d);
-      tau1L_diesis = 1.0/rho1L + (vel1_diesis - vel1L_d)/a1;
-      tau1R_diesis = 1.0/rho1R - (vel1_diesis - vel1R_d)/a1;
-    }
-    while(tau2L_diesis <= 0.0 || tau2R_diesis <= 0.0) {
-      a2           *= fact;
-      vel2_diesis  = 0.5*(vel2L_d + vel2R_d) - 0.5*(p2R - p2L)/a2;
-      p2_diesis    = 0.5*(p2R + p2L) - 0.5*a2*(vel2R_d - vel2L_d);
-      tau2L_diesis = 1.0/rho2L + (vel2_diesis - vel2L_d)/a2;
-      tau2R_diesis = 1.0/rho2R - (vel2_diesis - vel2R_d)/a2;
-    }
-
-    // Perform the computation of the intermediate states.
-    field_type guess = 0.0, sup = 0.0, inf = 0.0;
-    const double mu = 0.02;
-    // Impose inequality (3.39) in Saleh ESAIM 2019
-    do {
-      if(vel1_diesis - a1*tau1L_diesis > vel2_diesis - a2*tau2L_diesis &&
-         vel1_diesis + a1*tau1R_diesis < vel2_diesis + a2*tau2R_diesis) {
-        a1           *= fact;
-        vel1_diesis  = 0.5*(vel1L_d + vel1R_d) - 0.5*(p1R - p1L)/a1;
-        p1_diesis    = 0.5*(p1R + p1L) - 0.5*a1*(vel1R_d - vel1L_d);
-        tau1L_diesis = 1.0/rho1L + (vel1_diesis - vel1L_d)/a1;
-        tau1R_diesis = 1.0/rho1R - (vel1_diesis - vel1R_d)/a1;
-      }
-      else {
-        a2           *= fact;
-        vel2_diesis  = 0.5*(vel2L_d + vel2R_d) - 0.5*(p2R - p2L)/a2;
-        p2_diesis    = 0.5*(p2R + p2L) - 0.5*a2*(vel2R_d - vel2L_d);
-        tau2L_diesis = 1.0/rho2L + (vel2_diesis - vel2L_d)/a2;
-        tau2R_diesis = 1.0/rho2R - (vel2_diesis - vel2R_d)/a2;
-
-        if(!(vel2_diesis - a2*tau2L_diesis > vel1_diesis - a1*tau1L_diesis &&
-             vel2_diesis + a2*tau2R_diesis < vel1_diesis + a1*tau1R_diesis)) {
-          a1           *= fact;
-          vel1_diesis  = 0.5*(vel1L_d + vel1R_d) - 0.5*(p1R - p1L)/a1;
-          p1_diesis    = 0.5*(p1R + p1L) - 0.5*a1*(vel1R_d - vel1L_d);
-          tau1L_diesis = 1.0/rho1L + (vel1_diesis - vel1L_d)/a1;
-          tau1R_diesis = 1.0/rho1R - (vel1_diesis - vel1R_d)/a1;
-        }
-      }
-
-      guess = -p1_diesis*(alpha1R - alpha1L) - p2_diesis*(alpha2R - alpha2L);
-
-      const auto cLmax = std::max(vel1_diesis - a1*tau1L_diesis, vel2_diesis - a2*tau2L_diesis);
-      const auto cRmin = std::min(vel1_diesis + a1*tau1R_diesis, vel2_diesis + a2*tau2R_diesis);
-
-      inf = Psi(cLmax, a1, alpha1L, alpha1R, vel1_diesis, tau1L_diesis, tau1R_diesis,
-                       a2, alpha2L, alpha1R, vel2_diesis, tau2L_diesis, tau2R_diesis);
-      sup = Psi(cRmin, a1, alpha1L, alpha1R, vel1_diesis, tau1L_diesis, tau1R_diesis,
-                       a2, alpha2L, alpha1R, vel2_diesis, tau2L_diesis, tau2R_diesis);
-    }
-    while(guess - inf <= mu*(sup - inf) || sup - guess <= mu*(sup - inf));
-
-    const double eps   = 1e-7; // Newton tolerance
-    const auto uI_star = Newton(guess, a1, alpha1L, alpha1R, vel1_diesis, tau1L_diesis, tau1R_diesis,
-                                       a2, alpha2L, alpha1R, vel2_diesis, tau2L_diesis, tau2R_diesis, eps);
-
     field_type alpha1_m, tau1_m, u1_m, p1_m, E1_m,
-               alpha2_m, tau2_m, u2_m, p2_m, E2_m, w2_m;
-    Riemann_solver_phase_pI_m(-uI_star,
-                              alpha2L, alpha2R, 1.0/rho2L, 1.0/rho2R, vel2L_d - uI_star, vel2R_d - uI_star,
-                              p2L, p2R, E2L - (vel2L_d - uI_star)*uI_star - 0.5*uI_star*uI_star, E2R - (vel2R_d - uI_star)*uI_star - 0.5*uI_star*uI_star,
-                              vel2_diesis - uI_star, p2_diesis, tau2L_diesis, tau2R_diesis, a2,
-                              alpha2_m, tau2_m, w2_m, p2_m, E2_m);
+               alpha1_p, tau1_p, u1_p, p1_p, E1_p,
+               alpha2_m, tau2_m, u2_m, p2_m, E2_m, w2_m,
+               alpha2_p, tau2_p, u2_p, p2_p, E2_p, w2_p;
+    Riemann_solver_phase_pI(-uI_star,
+                             alpha2L, alpha2R, 1.0/rho2L, 1.0/rho2R, vel2L_d - uI_star, vel2R_d - uI_star,
+                             p2L, p2R, E2L - (vel2L_d - uI_star)*uI_star - 0.5*uI_star*uI_star, E2R - (vel2R_d - uI_star)*uI_star - 0.5*uI_star*uI_star,
+                             vel2_diesis - uI_star, p2_diesis, tau2L_diesis, tau2R_diesis, a2,
+                             alpha2_m, tau2_m, w2_m, p2_m, E2_m,
+                             alpha2_p, tau2_p, w2_p, p2_p, E2_p);
     u2_m = w2_m + uI_star;
   	E2_m += (u2_m - uI_star)*uI_star + 0.5*uI_star*uI_star;
-    Riemann_solver_phase_vI_m(0.0,
-                              alpha1L, alpha1R, 1.0/rho1L, 1.0/rho1R, vel1L_d, vel1R_d, p1L, p1R, E1L, E1R,
-                              a1, uI_star, alpha1_m, tau1_m, u1_m, p1_m, E1_m);
+    u2_p = w2_p + uI_star;
+  	E2_p += (u2_p - uI_star)*uI_star + 0.5*uI_star*uI_star;
+    Riemann_solver_phase_vI(0.0,
+                            alpha1L, alpha1R, 1.0/rho1L, 1.0/rho1R, vel1L_d, vel1R_d, p1L, p1R, E1L, E1R,
+                            a1, uI_star,
+                            alpha1_m, tau1_m, u1_m, p1_m, E1_m,
+                            alpha1_p, tau1_p, u1_p, p1_p, E1_p);
 
     // Build the flux
-    res(ALPHA1_INDEX) = 0.0;
+    F_minus(ALPHA1_INDEX) = 0.0;
 
-    res(ALPHA1_RHO1_INDEX) = alpha1_m/tau1_m*u1_m;
-    res(ALPHA1_RHO1_U1_INDEX) = alpha1_m/tau1_m*u1_m*u1_m;
+    F_minus(ALPHA1_RHO1_INDEX) = alpha1_m/tau1_m*u1_m;
+    F_minus(ALPHA1_RHO1_U1_INDEX) = alpha1_m/tau1_m*u1_m*u1_m;
     if(EquationData::dim > 1) {
       for(std::size_t d = 1; d < EquationData::dim; ++d) {
-        res(ALPHA1_RHO1_U1_INDEX + d) = alpha1_m/tau1_m*u1_m*u1_m;
+        F_minus(ALPHA1_RHO1_U1_INDEX + d) = alpha1_m/tau1_m*u1_m*u1_m;
       }
     }
-    res(ALPHA1_RHO1_U1_INDEX + curr_d) += alpha1_m*p1_m;
-    res(ALPHA1_RHO1_E1_INDEX) = alpha1_m/tau1_m*E1_m*u1_m + alpha1_m*p1_m*u1_m;
+    F_minus(ALPHA1_RHO1_U1_INDEX + curr_d) += alpha1_m*p1_m;
+    F_minus(ALPHA1_RHO1_E1_INDEX) = alpha1_m/tau1_m*E1_m*u1_m + alpha1_m*p1_m*u1_m;
 
-    res(ALPHA2_RHO2_INDEX) = alpha2_m/tau2_m*u2_m;
-    res(ALPHA2_RHO2_U2_INDEX) = alpha2_m/tau2_m*u2_m*u2_m;
+    F_minus(ALPHA2_RHO2_INDEX) = alpha2_m/tau2_m*u2_m;
+    F_minus(ALPHA2_RHO2_U2_INDEX) = alpha2_m/tau2_m*u2_m*u2_m;
     if(EquationData::dim > 1) {
       for(std::size_t d = 1; d < EquationData::dim; ++d) {
-        res(ALPHA2_RHO2_U2_INDEX + d) = alpha2_m/tau2_m*u2_m*u2_m;
+        F_minus(ALPHA2_RHO2_U2_INDEX + d) = alpha2_m/tau2_m*u2_m*u2_m;
       }
     }
-    res(ALPHA2_RHO2_U2_INDEX + curr_d) += alpha2_m*p2_m;
-    res(ALPHA2_RHO2_E2_INDEX) = alpha2_m/tau2_m*E2_m*u2_m + alpha2_m*p2_m*u2_m;
+    F_minus(ALPHA2_RHO2_U2_INDEX + curr_d) += alpha2_m*p2_m;
+    F_minus(ALPHA2_RHO2_E2_INDEX) = alpha2_m/tau2_m*E2_m*u2_m + alpha2_m*p2_m*u2_m;
 
-    if(uI_star < 0.0) {
-      const auto pidx_alpha2 = p2_diesis*(alpha2R - alpha2L) + psi(uI_star, a2, alpha2L, alpha2R, vel2_diesis, tau2L_diesis, tau2R_diesis);
+    // Build the flux
+    F_plus(ALPHA1_INDEX) = 0.0;
 
-      res(ALPHA1_INDEX)                  += uI_star*(alpha1R - alpha1L);
-
-      res(ALPHA1_RHO1_U1_INDEX + curr_d) += pidx_alpha2;
-      res(ALPHA1_RHO1_E1_INDEX)          += uI_star*pidx_alpha2;
-
-      res(ALPHA2_RHO2_U2_INDEX + curr_d) -= pidx_alpha2;
-      res(ALPHA2_RHO2_E2_INDEX)          -= uI_star*pidx_alpha2;
+    F_plus(ALPHA1_RHO1_INDEX) = alpha1_p/tau1_p*u1_p;
+    F_plus(ALPHA1_RHO1_U1_INDEX) = alpha1_p/tau1_p*u1_p*u1_p;
+    if(EquationData::dim > 1) {
+      for(std::size_t d = 1; d < EquationData::dim; ++d) {
+        F_plus(ALPHA1_RHO1_U1_INDEX + d) = alpha1_p/tau1_p*u1_p*u1_p;
+      }
     }
-
-    return res;
+    F_plus(ALPHA1_RHO1_U1_INDEX + curr_d) += alpha1_p*p1_p;
+    F_plus(ALPHA1_RHO1_E1_INDEX) = alpha1_p/tau1_p*E1_p*u1_p + alpha1_p*p1_p*u1_p;
+    F_plus(ALPHA2_RHO2_INDEX) = alpha2_p/tau2_p*u2_p;
+    F_plus(ALPHA2_RHO2_U2_INDEX) = alpha2_p/tau2_p*u2_p*u2_p;
+    if(EquationData::dim > 1) {
+      for(std::size_t d = 1; d < EquationData::dim; ++d) {
+        F_plus(ALPHA2_RHO2_U2_INDEX + d) = alpha2_p/tau2_p*u2_p*u2_p;
+      }
+    }
+    F_plus(ALPHA2_RHO2_U2_INDEX + curr_d) += alpha2_p*p2_p;
+    F_plus(ALPHA2_RHO2_E2_INDEX) = alpha2_p/tau2_p*E2_p*u2_p + alpha2_p*p2_p*u2_p;
   }
 
 
@@ -808,9 +636,14 @@ namespace samurai {
                                               const auto& qL = field[left];
                                               const auto& qR = field[right];
 
+                                              FluxValue<typename Flux<Field>::cfg> F_minus,
+                                                                                   F_plus;
+
+                                              compute_discrete_flux(qL, qR, d, F_minus, F_plus);
+
                                               samurai::FluxValuePair<typename Flux<Field>::cfg> flux;
-                                              flux[0] = compute_discrete_flux_right_left(qL, qR, d);
-                                              flux[1] = -compute_discrete_flux_left_right(qL, qR, d);
+                                              flux[0] = F_minus;
+                                              flux[1] = -F_plus;
 
                                               return flux;
                                             };
@@ -931,52 +764,18 @@ namespace samurai {
   //
   template<class Field>
   template<typename T>
-  void RelaxationFlux<Field>::Riemann_solver_phase_vI_m(const T xi,
-                                                        const T alphaL, const T alphaR, const T tauL, const T tauR, const T wL, const T wR, const T pL, const T pR, const T EL, const T ER,
-                                                        const T a, const T u_star, T& alpha_m, T& tau_m, T& w_m, T& pres_m, T& E_m) {
-    if(xi <= wL - a*tauL) {
+  void RelaxationFlux<Field>::Riemann_solver_phase_vI(const T xi,
+                                                      const T alphaL, const T alphaR, const T tauL, const T tauR, const T wL, const T wR, const T pL, const T pR, const T EL, const T ER,
+                                                      const T a, const T u_star,
+                                                      T& alpha_m, T& tau_m, T& w_m, T& pres_m, T& E_m,
+                                                      T& alpha_p, T& tau_p, T& w_p, T& pres_p, T& E_p) {
+    if(xi < wL - a*tauL) {
       alpha_m = alphaL;
       tau_m   = tauL;
       w_m     = wL;
       pres_m  = pL;
       E_m     = EL;
-    }
-    else {
-      if((xi > wL - a*tauL && xi < u_star) || (xi == u_star)) {
-        alpha_m = alphaL;
-        tau_m   = tauL + 1.0/a*(u_star - wL);
-        w_m     = u_star;
-        pres_m  = pL + a*(wL - u_star);
-        E_m     = EL - 1.0/a*(pres_m*w_m - pL*wL);
-      }
-      else {
-        if((xi > u_star && xi < wR + a*tauR) || (xi == wR + a*tauR)) {
-          alpha_m = alphaR;
-          tau_m   = tauR - 1.0/a*(u_star - wR);
-          w_m     = u_star;
-          pres_m  = pR - a*(wR - u_star);
-          E_m     = ER + 1.0/a*(pres_m*w_m - pR*wR);
-        }
-        else {
-          alpha_m = alphaR;
-          tau_m   = tauR;
-          w_m     = wR;
-          pres_m  = pR;
-          E_m     = ER;
-        }
-      }
-    }
-  }
 
-
-  // Riemann solver for the phase associated to the interfacial velocity
-  //
-  template<class Field>
-  template<typename T>
-  void RelaxationFlux<Field>::Riemann_solver_phase_vI_p(const T xi,
-                                                        const T alphaL, const T alphaR, const T tauL, const T tauR, const T wL, const T wR, const T pL, const T pR, const T EL, const T ER,
-                                                        const T a, const T u_star, T& alpha_p, T& tau_p, T& w_p, T& pres_p, T& E_p) {
-    if(xi < wL - a*tauL) {
       alpha_p = alphaL;
       tau_p   = tauL;
       w_p     = wL;
@@ -984,7 +783,13 @@ namespace samurai {
       E_p     = EL;
     }
     else {
-      if((xi == wL - a*tauL) || (xi > wL - a*tauL && xi < u_star)) {
+      if(xi == wL - a*tauL) {
+        alpha_m = alphaL;
+        tau_m   = tauL;
+        w_m     = wL;
+        pres_m  = pL;
+        E_m     = EL;
+
         alpha_p = alphaL;
         tau_p   = tauL + 1.0/a*(u_star - wL);
         w_p     = u_star;
@@ -992,144 +797,74 @@ namespace samurai {
         E_p     = EL - 1.0/a*(pres_p*w_p - pL*wL);
       }
       else {
-        if((xi == u_star) || (xi > u_star && xi < wR + a*tauR)) {
-          alpha_p = alphaR;
-          tau_p   = tauR - 1.0/a*(u_star - wR);
-          w_p     = u_star;
-          pres_p  = pR - a*(wR - u_star);
-          E_p     = ER + 1.0/a*(pres_p*w_p - pR*wR);
-        }
-        else {
-          alpha_p = alphaR;
-          tau_p   = tauR;
-          w_p     = wR;
-          pres_p  = pR;
-          E_p     = ER;
-        }
-      }
-    }
-  }
-
-
-  // Riemann solver for the phase associated to the interfacial pressure
-  //
-  template<class Field>
-  template<typename T>
-  void RelaxationFlux<Field>::Riemann_solver_phase_pI_m(const T xi,
-                                                        const T alphaL, const T alphaR, const T tauL, const T tauR, const T wL, const T wR, const T pL, const T pR, const T EL, const T ER,
-                                                        const T w_diesis, const T pI_diesis, const T tauL_diesis, const T tauR_diesis, const T a,
-                                                        T& alpha_m, T& tau_m, T& w_m, T& pres_m, T& E_m) {
-    const T nu  = alphaL/alphaR;
-    const T ML  = wL/(a*tauL);
-    const T MdL = w_diesis/(a*tauL_diesis);
-
-    T M;
-    T Mzero;
-    const T mu = 0.9;
-    const T t  = tauR_diesis/tauL_diesis;
-
-    if(w_diesis > 0.0) {
-      if(ML < 1.0) {
-        Mzero = 4.0/(nu + 1.0)*MdL/((1.0 + MdL*MdL)*(1.0 + std::sqrt(std::abs(1.0 - 4.0*nu/((nu + 1.0)*(nu + 1.0))*4.0*MdL*MdL/((1.0 + MdL*MdL)*(1.0 + MdL*MdL))))));
-
-        if(mu*tauR_diesis <= tauR_diesis + tauL_diesis*(MdL + nu*Mzero)/(1.0 + nu*Mzero)) {
-          M = Mzero;
-        }
-        else {
-          M = 1.0/nu*(MdL + t*(1.0 - mu))/(1.0 - t*(1.0 - mu));
-        }
-      }
-
-      if(xi <= wL - a*tauL) {
-        alpha_m = alphaL;
-        tau_m   = tauL;
-        w_m     = wL;
-        pres_m  = pL;
-        E_m     = EL;
-      }
-      else {
-        if((xi > wL - a*tauL && xi < 0.0) || (xi == 0.0)) {
+        if(xi > wL - a*tauL && xi < u_star) {
           alpha_m = alphaL;
-          tau_m   = tauL_diesis*(1.0 - MdL)/(1.0 - M);
-          w_m     = a*M*tau_m;
-          pres_m  = pL + a*(wL - w_m);
+          tau_m   = tauL + 1.0/a*(u_star - wL);
+          w_m     = u_star;
+          pres_m  = pL + a*(wL - u_star);
           E_m     = EL - 1.0/a*(pres_m*w_m - pL*wL);
+
+          alpha_p = alphaL;
+          tau_p   = tauL + 1.0/a*(u_star - wL);
+          w_p     = u_star;
+          pres_p  = pL + a*(wL - u_star);
+          E_p     = EL - 1.0/a*(pres_p*w_p - pL*wL);
         }
         else {
-          if((xi > 0.0 && xi < nu*a*M*tauL_diesis*(1.0 + MdL)/(1.0 + nu*M)) || (xi == nu*a*M*tauL_diesis*(1.0 + MdL)/(1.0 + nu*M))) {
-            /*--- Computation of temporary E_m using temporary values ---*/
+          if(xi == u_star) {
             alpha_m = alphaL;
-            tau_m   = tauL_diesis*(1.0 - MdL)/(1.0 - M);
-            w_m     = a*M*tau_m;
-            pres_m  = pL + a*(wL - w_m);
+            tau_m   = tauL + 1.0/a*(u_star - wL);
+            w_m     = u_star;
+            pres_m  = pL + a*(wL - u_star);
             E_m     = EL - 1.0/a*(pres_m*w_m - pL*wL);
 
-            /*--- Compute the real state ---*/
-            alpha_m = alphaR;
-            const auto tau_m_tmp = tau_m;
-            tau_m   = tauL_diesis*(1.0 + MdL)/(1.0 + nu*M);
-            w_m     = nu*a*M*tau_m;
-            const auto pres_m_tmp = pres_m;
-            pres_m  = pL + a*a*(tauL - tau_m);
-            E_m     -= 1.0/(nu*a)*(pres_m*nu*a*tau_m - nu*pres_m_tmp*a*tau_m_tmp);
+            alpha_p = alphaR;
+            tau_p   = tauR - 1.0/a*(u_star - wR);
+            w_p     = u_star;
+            pres_p  = pR - a*(wR - u_star);
+            E_p     = ER + 1.0/a*(pres_p*w_p - pR*wR);
           }
           else {
-            if((xi > nu*a*M*tauL_diesis*(1.0 + MdL)/(1.0 + nu*M) && xi < wR + a*tauR) || (xi == wR + a*tauR)) {
+            if(xi > u_star && xi < wR + a*tauR) {
               alpha_m = alphaR;
-              tau_m   = tauR_diesis + tauL_diesis*(MdL - nu*M)/(1.0 + nu*M);
-              w_m     = nu*a*M*tauL_diesis*(1.0 + MdL)/(1.0 + nu*M);
-              pres_m  = pR - a*(wR - w_m);
-              E_m     = ER + 1.0/a*(pres_m*w_m - pR*wR); // TODO: Check this sign here (why in the original code he preferred with -)???
-            }
-            else {
-              alpha_m = alphaR;
-              tau_m   = tauR;
-              w_m     = wR;
-              pres_m  = pR;
-              E_m     = ER;
-            }
-          }
-        }
-      }
-    }
-    else {
-      if(w_diesis < 0.0) {
-        Riemann_solver_phase_pI_p(-xi,
-                                  alphaR, alphaL, tauR, tauL, -wR, -wL, pR, pL, ER, EL,
-                                  -w_diesis, pI_diesis, tauR_diesis, tauL_diesis, a,
-                                  alpha_m, tau_m, w_m, pres_m, E_m);
-        w_m *= -1.0;
-      }
-      else {
-        if(xi <= wL - a*tauL) {
-          alpha_m = alphaL;
-          tau_m   = tauL;
-          w_m     = wL;
-          pres_m  = pL;
-          E_m     = EL;
-        }
-        else {
-          if((xi > wL - a*tauL && xi < 0.0) || (xi == 0.0)) {
-            alpha_m = alphaL;
-            tau_m   = tauL_diesis;
-            w_m     = 0.0;
-            pres_m  = pL + a*(wL - w_m);
-            E_m     = EL - 1.0/a*(pres_m*w_m - pL*wL);
-          }
-          else {
-            if((xi > 0.0 && xi < wR + a*tauR) || (xi == wR + a*tauR)) {
-              alpha_m = alphaR;
-              tau_m   = tauR_diesis;
-              w_m     = 0.0;
-              pres_m  = pR - a*(wR - w_m);
+              tau_m   = tauR - 1.0/a*(u_star - wR);
+              w_m     = u_star;
+              pres_m  = pR - a*(wR - u_star);
               E_m     = ER + 1.0/a*(pres_m*w_m - pR*wR);
+
+              alpha_p = alphaR;
+              tau_p   = tauR - 1.0/a*(u_star - wR);
+              w_p     = u_star;
+              pres_p  = pR - a*(wR - u_star);
+              E_p     = ER + 1.0/a*(pres_p*w_p - pR*wR);
             }
             else {
-              alpha_m = alphaR;
-              tau_m   = tauR;
-              w_m     = wR;
-              pres_m  = pR;
-              E_m     = ER;
+              if(xi == wR + a*tauR) {
+                alpha_m = alphaR;
+                tau_m   = tauR - 1.0/a*(u_star - wR);
+                w_m     = u_star;
+                pres_m  = pR - a*(wR - u_star);
+                E_m     = ER + 1.0/a*(pres_m*w_m - pR*wR);
+
+                alpha_p = alphaR;
+                tau_p   = tauR;
+                w_p     = wR;
+                pres_p  = pR;
+                E_p     = ER;
+              }
+              else {
+                alpha_m = alphaR;
+                tau_m   = tauR;
+                w_m     = wR;
+                pres_m  = pR;
+                E_m     = ER;
+
+                alpha_p = alphaR;
+                tau_p   = tauR;
+                w_p     = wR;
+                pres_p  = pR;
+                E_p     = ER;
+              }
             }
           }
         }
@@ -1142,10 +877,11 @@ namespace samurai {
   //
   template<class Field>
   template<typename T>
-  void RelaxationFlux<Field>::Riemann_solver_phase_pI_p(const T xi,
-                                                        const T alphaL, const T alphaR, const T tauL, const T tauR, const T wL, const T wR, const T pL, const T pR, const T EL, const T ER,
-                                                        const T w_diesis, const T pI_diesis, const T tauL_diesis, const T tauR_diesis, const T a,
-                                                        T& alpha_p, T& tau_p, T& w_p, T& pres_p, T& E_p) {
+  void RelaxationFlux<Field>::Riemann_solver_phase_pI(const T xi,
+                                                      const T alphaL, const T alphaR, const T tauL, const T tauR, const T wL, const T wR, const T pL, const T pR, const T EL, const T ER,
+                                                      const T w_diesis, const T pI_diesis, const T tauL_diesis, const T tauR_diesis, const T a,
+                                                      T& alpha_m, T& tau_m, T& w_m, T& pres_m, T& E_m,
+                                                      T& alpha_p, T& tau_p, T& w_p, T& pres_p, T& E_p) {
     const T nu  = alphaL/alphaR;
     const T ML  = wL/(a*tauL);
     const T MdL = w_diesis/(a*tauL_diesis);
@@ -1168,6 +904,12 @@ namespace samurai {
       }
 
       if(xi < wL - a*tauL) {
+        alpha_m = alphaL;
+        tau_m   = tauL;
+        w_m     = wL;
+        pres_m  = pL;
+        E_m     = EL;
+
         alpha_p = alphaL;
         tau_p   = tauL;
         w_p     = wL;
@@ -1175,7 +917,13 @@ namespace samurai {
         E_p     = EL;
       }
       else {
-        if((xi == wL - a*tauL) || (xi > wL - a*tauL && xi < 0.0)) {
+        if(xi == wL - a*tauL) {
+          alpha_m = alphaL;
+          tau_m   = tauL;
+          w_m     = wL;
+          pres_m  = pL;
+          E_m     = EL;
+
           alpha_p = alphaL;
           tau_p   = tauL_diesis*(1.0 - MdL)/(1.0 - M);
           w_p     = a*M*tau_p;
@@ -1183,37 +931,145 @@ namespace samurai {
           E_p     = EL - 1.0/a*(pres_p*w_p - pL*wL);
         }
         else {
-          if((xi == 0.0) || (xi > 0.0 && xi < nu*a*M*tauL_diesis*(1.0 + MdL)/(1.0 + nu*M))) {
-            /*--- Computation of temporary E_p using temporary values ---*/
+          if(xi > wL - a*tauL && xi < 0.0) {
+            alpha_m = alphaL;
+            tau_m   = tauL_diesis*(1.0 - MdL)/(1.0 - M);
+            w_m     = a*M*tau_m;
+            pres_m  = pL + a*(wL - w_m);
+            E_m     = EL - 1.0/a*(pres_m*w_m - pL*wL);
+
             alpha_p = alphaL;
             tau_p   = tauL_diesis*(1.0 - MdL)/(1.0 - M);
             w_p     = a*M*tau_p;
             pres_p  = pL + a*(wL - w_p);
             E_p     = EL - 1.0/a*(pres_p*w_p - pL*wL);
-
-            /*--- Compute the real state ---*/
-            alpha_p = alphaR;
-            const auto tau_p_tmp = tau_p; // Save temporary value
-            tau_p   = tauL_diesis*(1.0 + MdL)/(1.0 + nu*M);
-            w_p     = nu*a*M*tau_p;
-            const auto pres_p_tmp = pres_p; // Save temporary value
-            pres_p  = pL + a*a*(tauL - tau_p);
-            E_p     -= 1.0/(nu*a)*(pres_p*nu*a*tau_p - nu*pres_p_tmp*a*tau_p_tmp);
           }
           else {
-            if((xi == nu*a*M*tauL_diesis*(1.0 + MdL)/(1.0 + nu*M)) || (xi < nu*a*M*tauL_diesis*(1.0 + MdL)/(1.0 + nu*M) && xi < wR + a*tauR)) {
+            if(xi == 0.0) {
+              alpha_m = alphaL;
+              tau_m   = tauL_diesis*(1.0 - MdL)/(1.0 - M);
+              w_m     = a*M*tau_m;
+              pres_m  = pL + a*(wL - w_m);
+              E_m     = EL - 1.0/a*(pres_m*w_m - pL*wL);
+
+              /*--- Computation of temporary E_p using temporary values ---*/
+              alpha_p = alphaL;
+              tau_p   = tauL_diesis*(1.0 - MdL)/(1.0 - M);
+              w_p     = a*M*tau_p;
+              pres_p  = pL + a*(wL - w_p);
+              E_p     = EL - 1.0/a*(pres_p*w_p - pL*wL);
+
+              /*--- Compute the real state ---*/
               alpha_p = alphaR;
-              tau_p   = tauR_diesis + tauL_diesis*(MdL - nu*M)/(1.0 + nu*M);
-              w_p     = nu*a*M*tauL_diesis*(1.0 + MdL)/(1.0 + nu*M);
-              pres_p  = pR - a*(wR - w_p);
-              E_p     = ER + 1.0/a*(pres_p*w_p - pR*wR); // TODO: Check this sign here (why in the original code he preferred with -)???
+              const auto tau_p_tmp = tau_p; // Save temporary value
+              tau_p   = tauL_diesis*(1.0 + MdL)/(1.0 + nu*M);
+              w_p     = nu*a*M*tau_p;
+              const auto pres_p_tmp = pres_p; // Save temporary value
+              pres_p  = pL + a*a*(tauL - tau_p);
+              E_p     -= 1.0/(nu*a)*(pres_p*nu*a*tau_p - nu*pres_p_tmp*a*tau_p_tmp);
             }
             else {
-              alpha_p = alphaR;
-              tau_p   = tauR;
-              w_p     = wR;
-              pres_p  = pR;
-              E_p     = ER;
+              if(xi > 0.0 && xi < nu*a*M*tauL_diesis*(1.0 + MdL)/(1.0 + nu*M)) {
+                /*--- Computation of temporary E_m using temporary values ---*/
+                alpha_m = alphaL;
+                tau_m   = tauL_diesis*(1.0 - MdL)/(1.0 - M);
+                w_m     = a*M*tau_m;
+                pres_m  = pL + a*(wL - w_m);
+                E_m     = EL - 1.0/a*(pres_m*w_m - pL*wL);
+
+                /*--- Compute the real state ---*/
+                alpha_m = alphaR;
+                const auto tau_m_tmp = tau_m;
+                tau_m   = tauL_diesis*(1.0 + MdL)/(1.0 + nu*M);
+                w_m     = nu*a*M*tau_m;
+                const auto pres_m_tmp = pres_m;
+                pres_m  = pL + a*a*(tauL - tau_m);
+                E_m     -= 1.0/(nu*a)*(pres_m*nu*a*tau_m - nu*pres_m_tmp*a*tau_m_tmp);
+
+                /*--- Computation of temporary E_p using temporary values ---*/
+                alpha_p = alphaL;
+                tau_p   = tauL_diesis*(1.0 - MdL)/(1.0 - M);
+                w_p     = a*M*tau_p;
+                pres_p  = pL + a*(wL - w_p);
+                E_p     = EL - 1.0/a*(pres_p*w_p - pL*wL);
+
+                /*--- Compute the real state ---*/
+                alpha_p = alphaR;
+                const auto tau_p_tmp = tau_p; // Save temporary value
+                tau_p   = tauL_diesis*(1.0 + MdL)/(1.0 + nu*M);
+                w_p     = nu*a*M*tau_p;
+                const auto pres_p_tmp = pres_p; // Save temporary value
+                pres_p  = pL + a*a*(tauL - tau_p);
+                E_p     -= 1.0/(nu*a)*(pres_p*nu*a*tau_p - nu*pres_p_tmp*a*tau_p_tmp);
+              }
+              else {
+                if(xi == nu*a*M*tauL_diesis*(1.0 + MdL)/(1.0 + nu*M)) {
+                  /*--- Computation of temporary E_m using temporary values ---*/
+                  alpha_m = alphaL;
+                  tau_m   = tauL_diesis*(1.0 - MdL)/(1.0 - M);
+                  w_m     = a*M*tau_m;
+                  pres_m  = pL + a*(wL - w_m);
+                  E_m     = EL - 1.0/a*(pres_m*w_m - pL*wL);
+
+                  /*--- Compute the real state ---*/
+                  alpha_m = alphaR;
+                  const auto tau_m_tmp = tau_m;
+                  tau_m   = tauL_diesis*(1.0 + MdL)/(1.0 + nu*M);
+                  w_m     = nu*a*M*tau_m;
+                  const auto pres_m_tmp = pres_m;
+                  pres_m  = pL + a*a*(tauL - tau_m);
+                  E_m     -= 1.0/(nu*a)*(pres_m*nu*a*tau_m - nu*pres_m_tmp*a*tau_m_tmp);
+
+                  alpha_p = alphaR;
+                  tau_p   = tauR_diesis + tauL_diesis*(MdL - nu*M)/(1.0 + nu*M);
+                  w_p     = nu*a*M*tauL_diesis*(1.0 + MdL)/(1.0 + nu*M);
+                  pres_p  = pR - a*(wR - w_p);
+                  E_p     = ER + 1.0/a*(pres_p*w_p - pR*wR); // TODO: Check this sign here (why in the original code he preferred with -)???
+                }
+                else {
+                  if(xi > nu*a*M*tauL_diesis*(1.0 + MdL)/(1.0 + nu*M) && xi < wR + a*tauR) {
+                    alpha_m = alphaR;
+                    tau_m   = tauR_diesis + tauL_diesis*(MdL - nu*M)/(1.0 + nu*M);
+                    w_m     = nu*a*M*tauL_diesis*(1.0 + MdL)/(1.0 + nu*M);
+                    pres_m  = pR - a*(wR - w_m);
+                    E_m     = ER + 1.0/a*(pres_m*w_m - pR*wR); // TODO: Check this sign here (why in the original code he preferred with -)???
+
+                    alpha_p = alphaR;
+                    tau_p   = tauR_diesis + tauL_diesis*(MdL - nu*M)/(1.0 + nu*M);
+                    w_p     = nu*a*M*tauL_diesis*(1.0 + MdL)/(1.0 + nu*M);
+                    pres_p  = pR - a*(wR - w_p);
+                    E_p     = ER + 1.0/a*(pres_p*w_p - pR*wR); // TODO: Check this sign here (why in the original code he preferred with -)???
+                  }
+                  else {
+                    if(xi == wR + a*tauR) {
+                      alpha_m = alphaR;
+                      tau_m   = tauR_diesis + tauL_diesis*(MdL - nu*M)/(1.0 + nu*M);
+                      w_m     = nu*a*M*tauL_diesis*(1.0 + MdL)/(1.0 + nu*M);
+                      pres_m  = pR - a*(wR - w_m);
+                      E_m     = ER + 1.0/a*(pres_m*w_m - pR*wR); // TODO: Check this sign here (why in the original code he preferred with -)???
+
+                      alpha_p = alphaR;
+                      tau_p   = tauR;
+                      w_p     = wR;
+                      pres_p  = pR;
+                      E_p     = ER;
+                    }
+                    else {
+                      alpha_m = alphaR;
+                      tau_m   = tauR;
+                      w_m     = wR;
+                      pres_m  = pR;
+                      E_m     = ER;
+
+                      alpha_p = alphaR;
+                      tau_p   = tauR;
+                      w_p     = wR;
+                      pres_p  = pR;
+                      E_p     = ER;
+                    }
+                  }
+                }
+              }
             }
           }
         }
@@ -1221,14 +1077,22 @@ namespace samurai {
     }
     else {
       if(w_diesis < 0.0) {
-        Riemann_solver_phase_pI_m(-xi,
-                                  alphaR, alphaL, tauR, tauL, -wR, -wL, pR, pL, ER, EL,
-                                  -w_diesis, pI_diesis, tauR_diesis, tauL_diesis, a,
-                                  alpha_p, tau_p, w_p, pres_p, E_p);
+        Riemann_solver_phase_pI(-xi,
+                                alphaR, alphaL, tauR, tauL, -wR, -wL, pR, pL, ER, EL,
+                                -w_diesis, pI_diesis, tauR_diesis, tauL_diesis, a,
+                                alpha_m, tau_m, w_m, pres_m, E_m,
+                                alpha_p, tau_p, w_p, pres_p, E_p);
+        w_m *= -1.0;
         w_p *= -1.0;
       }
       else {
         if(xi < wL - a*tauL) {
+          alpha_m = alphaL;
+          tau_m   = tauL;
+          w_m     = wL;
+          pres_m  = pL;
+          E_m     = EL;
+
           alpha_p = alphaL;
           tau_p   = tauL;
           w_p     = wL;
@@ -1236,7 +1100,13 @@ namespace samurai {
           E_p     = EL;
         }
         else {
-          if((xi == wL - a*tauL) || (xi > wL - a*tauL && xi < 0.0)) {
+          if(xi == wL - a*tauL) {
+            alpha_m = alphaL;
+            tau_m   = tauL;
+            w_m     = wL;
+            pres_m  = pL;
+            E_m     = EL;
+
             alpha_p = alphaL;
             tau_p   = tauL_diesis;
             w_p     = 0.0;
@@ -1244,26 +1114,82 @@ namespace samurai {
             E_p     = EL - 1.0/a*(pres_p*w_p - pL*wL);
           }
           else {
-            if((xi == 0.0) || (xi > 0.0 && xi < wR + a*tauR)) {
-              alpha_p = alphaR;
-              tau_p   = tauR_diesis;
+            if(xi > wL - a*tauL && xi < 0.0) {
+              alpha_m = alphaL;
+              tau_m   = tauL_diesis;
+              w_m     = 0.0;
+              pres_m  = pL + a*(wL - w_m);
+              E_m     = EL - 1.0/a*(pres_m*w_m - pL*wL);
+
+              alpha_p = alphaL;
+              tau_p   = tauL_diesis;
               w_p     = 0.0;
-              pres_p  = pR - a*(wR - w_p);
-              E_p     = ER + 1.0/a*(pres_p*w_p - pR*wR);
+              pres_p  = pL + a*(wL - w_p);
+              E_p     = EL - 1.0/a*(pres_p*w_p - pL*wL);
             }
             else {
-              alpha_p = alphaR;
-              tau_p   = tauR;
-              w_p     = wR;
-              pres_p  = pR;
-              E_p     = ER;
+              if(xi == 0.0) {
+                alpha_m = alphaL;
+                tau_m   = tauL_diesis;
+                w_m     = 0.0;
+                pres_m  = pL + a*(wL - w_m);
+                E_m     = EL - 1.0/a*(pres_m*w_m - pL*wL);
+
+                alpha_p = alphaR;
+                tau_p   = tauR_diesis;
+                w_p     = 0.0;
+                pres_p  = pR - a*(wR - w_p);
+                E_p     = ER + 1.0/a*(pres_p*w_p - pR*wR);
+              }
+              else {
+                if(xi > 0.0 && xi < wR + a*tauR) {
+                  alpha_m = alphaR;
+                  tau_m   = tauR_diesis;
+                  w_m     = 0.0;
+                  pres_m  = pR - a*(wR - w_m);
+                  E_m     = ER + 1.0/a*(pres_m*w_m - pR*wR);
+
+                  alpha_p = alphaR;
+                  tau_p   = tauR_diesis;
+                  w_p     = 0.0;
+                  pres_p  = pR - a*(wR - w_p);
+                  E_p     = ER + 1.0/a*(pres_p*w_p - pR*wR);
+                }
+                else {
+                  if(xi == wR + a*tauR) {
+                    alpha_m = alphaR;
+                    tau_m   = tauR_diesis;
+                    w_m     = 0.0;
+                    pres_m  = pR - a*(wR - w_m);
+                    E_m     = ER + 1.0/a*(pres_m*w_m - pR*wR);
+
+                    alpha_p = alphaR;
+                    tau_p   = tauR;
+                    w_p     = wR;
+                    pres_p  = pR;
+                    E_p     = ER;
+                  }
+                  else {
+                    alpha_m = alphaR;
+                    tau_m   = tauR;
+                    w_m     = wR;
+                    pres_m  = pR;
+                    E_m     = ER;
+
+                    alpha_p = alphaR;
+                    tau_p   = tauR;
+                    w_p     = wR;
+                    pres_p  = pR;
+                    E_p     = ER;
+                  }
+                }
+              }
             }
           }
         }
       }
     }
   }
-
 
 } // end namespace samurai
 

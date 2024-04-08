@@ -140,7 +140,7 @@ void Relaxation<dim>::init_variables() {
                            const double x    = center[0];
 
                            if(x <= xd) {
-                             conserved_variables[cell][ALPHA1_INDEX] = 0.8;
+                             conserved_variables[cell][ALPHA1_INDEX] = 0.5;
 
                              rho1[cell] = 1.00003;
                              vel1[cell] = 0.00007;
@@ -151,7 +151,7 @@ void Relaxation<dim>::init_variables() {
                              p2[cell]   = 0.3;
                            }
                            else {
-                             conserved_variables[cell][ALPHA1_INDEX] = 0.3;
+                             conserved_variables[cell][ALPHA1_INDEX] = 0.5;
 
                              rho1[cell] = 0.99993;
                              vel1[cell] = -0.00004;
