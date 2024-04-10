@@ -140,26 +140,26 @@ void Relaxation<dim>::init_variables() {
                            const double x    = center[0];
 
                            if(x <= xd) {
-                             conserved_variables[cell][ALPHA1_INDEX] = 0.5;
+                             conserved_variables[cell][ALPHA1_INDEX] = 0.8;
 
-                             rho1[cell] = 1.00003;
-                             vel1[cell] = 0.00007;
-                             p1[cell]   = 1.0;
+                             rho1[cell] = 1.0;
+                             vel1[cell] = -19.59716;
+                             p1[cell]   = 1000.0;
 
-                             rho2[cell] = 0.21340;
-                             vel2[cell] = -0.02609;
-                             p2[cell]   = 0.3;
+                             rho2[cell] = 1.0;
+                             vel2[cell] = -19.59741;
+                             p2[cell]   = 1000.0;
                            }
                            else {
-                             conserved_variables[cell][ALPHA1_INDEX] = 0.5;
+                             conserved_variables[cell][ALPHA1_INDEX] = 0.3;
 
-                             rho1[cell] = 0.99993;
-                             vel1[cell] = -0.00004;
-                             p1[cell]   = 1.0;
+                             rho1[cell] = 1.0;
+                             vel1[cell] = -19.59741;
+                             p1[cell]   = 0.1;
 
-                             rho2[cell] = 0.96964;
-                             vel2[cell] = -0.03629;
-                             p2[cell]   = 0.95776;
+                             rho2[cell] = 1.0;
+                             vel2[cell] = -19.59741;
+                             p2[cell]   = 0.1;
                            }
 
                            conserved_variables[cell][ALPHA1_RHO1_INDEX]    = conserved_variables[cell][ALPHA1_INDEX]*rho1[cell];
@@ -245,9 +245,9 @@ void Relaxation<dim>::update_auxiliary_fields() {
 template<std::size_t dim>
 template<class... Variables>
 void Relaxation<dim>::save(const fs::path& path,
-                         const std::string& filename,
-                         const std::string& suffix,
-                         const Variables&... fields) {
+                           const std::string& filename,
+                           const std::string& suffix,
+                           const Variables&... fields) {
   auto level_ = samurai::make_field<std::size_t, 1>("level", mesh);
 
   if(!fs::exists(path)) {
@@ -277,7 +277,8 @@ void Relaxation<dim>::run() {
   auto conserved_variables_np1 = samurai::make_field<double, EquationData::NVARS>("conserved_np1", mesh);
 
   // Create the flux variables
-  auto Suliciu_flux = numerical_flux.make_flux();
+  double c = 0.0;
+  auto Suliciu_flux = numerical_flux.make_flux(c);
 
   // Save the initial condition
   const std::string suffix_init = (nfiles != 1) ? "_ite_0" : "";
@@ -286,36 +287,28 @@ void Relaxation<dim>::run() {
   // Set initial time step
   using mesh_id_t = typename decltype(mesh)::mesh_id_t;
   double dx = samurai::cell_length(mesh[mesh_id_t::cells].max_level());
-  double dt = cfl*dx/get_max_lambda();
 
   // Start the loop
   std::size_t nsave = 0;
   std::size_t nt    = 0;
   double t          = 0.0;
   while(t != Tf) {
-    t += dt;
-    if(t > Tf) {
-      dt += Tf - t;
-      t = Tf;
-    }
-
-    std::cout << fmt::format("Iteration {}: t = {}, dt = {}", ++nt, t, dt) << std::endl;
-
     // Apply the numerical scheme
     samurai::update_ghost_mr(conserved_variables);
     samurai::update_bc(conserved_variables);
     auto Relaxation_Flux = Suliciu_flux(conserved_variables);
+    dx = samurai::cell_length(mesh[mesh_id_t::cells].max_level());
+    double dt = std::min(Tf - t, cfl*dx/c);
+    t += dt;
+    std::cout << fmt::format("Iteration {}: t = {}, dt = {}", ++nt, t, dt) << std::endl;
     conserved_variables_np1 = conserved_variables - dt*Relaxation_Flux;
 
     std::swap(conserved_variables.array(), conserved_variables_np1.array());
 
-    // Compute updated time step
-    update_auxiliary_fields();
-    dx = samurai::cell_length(mesh[mesh_id_t::cells].max_level());
-    dt = std::min(dt, cfl*dx/get_max_lambda());
-
     // Save the results
     if(t >= static_cast<double>(nsave + 1) * dt_save || t == Tf) {
+      update_auxiliary_fields();
+
       const std::string suffix = (nfiles != 1) ? fmt::format("_ite_{}", ++nsave) : "";
       save(path, filename, suffix, conserved_variables, rho, p, vel1, rho1, p1, c1, vel2, rho2, p2, c2);
     }
