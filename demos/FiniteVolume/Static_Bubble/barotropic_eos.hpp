@@ -6,7 +6,9 @@
  */
 class LinearizedBarotropicEOS {
 public:
-  LinearizedBarotropicEOS() = default;
+  LinearizedBarotropicEOS() = default; // Default constructor
+
+  LinearizedBarotropicEOS(const LinearizedBarotropicEOS&) = default; // Default copy-constructor
 
   LinearizedBarotropicEOS(const double p0_, const double rho0_, const double c0_); // Constructor which accepts as arguments
                                                                                    // reference pressure, density and speed of sound

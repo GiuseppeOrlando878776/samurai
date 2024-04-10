@@ -15,8 +15,6 @@ namespace fs = std::filesystem;
 
 #include "two_scale_capillarity_FV.hpp"
 
-#include <samurai/mr/adapt.hpp>
-
 // Specify the use of this namespace where we just store the indices
 // and, in this case, some parameters related to EOS
 using namespace EquationData;
@@ -58,10 +56,6 @@ private:
   using Field_Scalar = samurai::Field<decltype(mesh), double, 1, false>;
   using Field_Vect   = samurai::Field<decltype(mesh), double, dim, false>;
 
-  LinearizedBarotropicEOS EOS_phase1,
-                          EOS_phase2; // The two variables which take care of the
-                                      // barotropic EOS to compute the speed of sound
-
   bool apply_relax; // Choose whether to apply or not the relaxation
 
   double Tf;  // Final time of the simulation
@@ -102,6 +96,12 @@ private:
   double eps;                     // Tolerance when we want to avoid division by zero
   double mod_grad_alpha1_bar_min; // Minimum threshold for which not computing anymore the unit normal
 
+  LinearizedBarotropicEOS EOS_phase1,
+                          EOS_phase2; // The two variables which take care of the
+                                      // barotropic EOS to compute the speed of sound
+
+  samurai::RusanovFlux<Field> Rusanov_flux; // Auxiliary variable to cpmpute the flux
+
   /*--- Now, it's time to declare some member functions that we will employ ---*/
   void update_geometry(); // Auxiliary routine to compute normals and curvature
 
@@ -129,10 +129,10 @@ StaticBubble<dim>::StaticBubble(const xt::xtensor_fixed<double, xt::xshape<dim>>
   apply_relax(apply_relax_), Tf(Tf_), cfl(cfl_), nfiles(nfiles_),
   gradient(samurai::make_gradient_order2<decltype(alpha1_bar)>()),
   divergence(samurai::make_divergence_order2<decltype(normal)>()),
-  eps(1e-9), mod_grad_alpha1_bar_min(0.0) {
-    EOS_phase1 = LinearizedBarotropicEOS(EquationData::p0_phase1, EquationData::rho0_phase1, EquationData::c0_phase1);
-    EOS_phase2 = LinearizedBarotropicEOS(EquationData::p0_phase2, EquationData::rho0_phase2, EquationData::c0_phase2);
-
+  eps(1e-9), mod_grad_alpha1_bar_min(0.0),
+  EOS_phase1(EquationData::p0_phase1, EquationData::rho0_phase1, EquationData::c0_phase1),
+  EOS_phase2(EquationData::p0_phase2, EquationData::rho0_phase2, EquationData::c0_phase2),
+  Rusanov_flux(EOS_phase1, EOS_phase2, eps) {
     std::cout << "Initializing variables " << std::endl;
     init_variables();
 }
@@ -260,7 +260,7 @@ void StaticBubble<dim>::init_variables() {
                            conserved_variables[cell][RHO_ALPHA1_BAR_INDEX] = alpha1_bar[cell]*rho[cell];
 
                            conserved_variables[cell][RHO_U_INDEX] = rho[cell]*vel[cell][0];
-                           conserved_variables[cell][RHO_V_INDEX] = rho[cell]*vel[cell][1];
+                           conserved_variables[cell][RHO_U_INDEX + 1] = rho[cell]*vel[cell][1];
 
                            p_bar[cell] = (alpha1_bar[cell] > eps && alpha2_bar[cell] > eps) ?
                                          alpha1_bar[cell]*p1[cell] + alpha2_bar[cell]*p2[cell] :
@@ -272,8 +272,8 @@ void StaticBubble<dim>::init_variables() {
                                      (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
                          });
 
-  // Consider homogeneous Dirichlet bcs
-  samurai::make_bc<samurai::Dirichlet>(conserved_variables, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+  // Consider Dirichlet bcs
+  samurai::make_bc<samurai::Dirichlet<1>>(conserved_variables, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 }
 
 
@@ -311,7 +311,7 @@ void StaticBubble<dim>::update_auxiliary_fields_pre_relaxation() {
 
                            vel[cell][0] = conserved_variables[cell][RHO_U_INDEX]/
                                           rho[cell];
-                           vel[cell][1] = conserved_variables[cell][RHO_V_INDEX]/
+                           vel[cell][1] = conserved_variables[cell][RHO_U_INDEX + 1]/
                                           rho[cell];
                          });
 }
@@ -494,7 +494,7 @@ void StaticBubble<dim>::run() {
   auto conserved_variables_np1 = samurai::make_field<double, EquationData::NVARS>("conserved_np1", mesh);
 
   // Create the flux variable
-  auto flux = samurai::make_two_scale_capillarity<decltype(conserved_variables)>(vel, p_bar, c, normal, mod_grad_alpha1_bar);
+  auto numerical_flux = Rusanov_flux.make_two_scale_capillarity(normal, mod_grad_alpha1_bar);
 
   // Save the initial condition
   const std::string suffix_init = (nfiles != 1) ? "_ite_0" : "";
@@ -517,14 +517,10 @@ void StaticBubble<dim>::run() {
 
     std::cout << fmt::format("Iteration {}: t = {}, dt = {}", ++nt, t, dt) << std::endl;
 
-    auto MRadaptation = samurai::make_MRAdapt(alpha1_bar);
-    MRadaptation(1e-5, 0, conserved_variables, vel, p_bar, c, mod_grad_alpha1_bar, normal, rho, alpha1, rho1, p1, alpha2, rho2, p2, grad_alpha1_bar, H, alpha2_bar);
-
     // Apply the numerical scheme without relaxation
-    samurai::update_ghost_mr(conserved_variables, vel, p_bar, c, mod_grad_alpha1_bar, normal);
-    samurai::update_bc(conserved_variables, vel, p_bar, c, mod_grad_alpha1_bar, normal);
-    auto flux_conserved = flux(conserved_variables);
-    conserved_variables_np1.resize();
+    samurai::update_ghost_mr(conserved_variables, mod_grad_alpha1_bar, normal);
+    samurai::update_bc(conserved_variables);
+    auto flux_conserved = numerical_flux(conserved_variables);
     conserved_variables_np1 = conserved_variables - dt*flux_conserved;
 
     std::swap(conserved_variables.array(), conserved_variables_np1.array());
