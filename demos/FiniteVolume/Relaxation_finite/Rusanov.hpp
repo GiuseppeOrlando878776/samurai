@@ -187,7 +187,7 @@ void Rusanov<dim>::init_variables() {
                                    + (1.0 - conserved_variables[cell][ALPHA1_INDEX])*p2[cell];
                          });
 
-  samurai::make_bc<samurai::Neumann>(conserved_variables, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+  samurai::make_bc<samurai::Neumann<1>>(conserved_variables, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 }
 
 

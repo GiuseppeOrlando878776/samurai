@@ -742,7 +742,7 @@ namespace samurai {
   template<class Field>
   template<typename T>
   T RelaxationFlux<Field>::Newton(const T rhs, const T a1, const T alpha1L, const T alpha1R, const T vel1_diesis, const T tau1L_diesis, const T tau1R_diesis,
-                                                 const T a2, const T alpha2L, const T alpha2R, const T vel2_diesis, const T tau2L_diesis, const T tau2R_diesis, const double eps) const {
+                                               const T a2, const T alpha2L, const T alpha2R, const T vel2_diesis, const T tau2L_diesis, const T tau2R_diesis, const double eps) const {
     if(alpha1L == alpha1R) {
       return vel1_diesis;
     }
