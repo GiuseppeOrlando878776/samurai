@@ -15,14 +15,23 @@ int main(int argc, char* argv[]) {
 
   // Simulation parameters
   double Tf  = 240e-6;
-  double cfl = 0.45;
+  double cfl = 0.4;
 
   // Output parameters
   std::size_t nfiles = 100;
 
+  bool apply_velocity_relax  = true;
+  bool apply_pressure_relax  = true;
+  bool apply_pressure_reinit = false;
+  bool energy_update_phase_1 = true;
+  bool preserve_energy       = true;
+
   // Create the instance of the class to perform the simulation
   auto Relaxation_Rusanov_Sim = Relaxation(min_corner, max_corner, min_level, max_level,
-                                           Tf, cfl, nfiles);
+                                           Tf, cfl, nfiles,
+                                           apply_velocity_relax, apply_pressure_relax,
+                                           apply_pressure_reinit, energy_update_phase_1,
+                                           preserve_energy);
 
   Relaxation_Rusanov_Sim.run();
 
