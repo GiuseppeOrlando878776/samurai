@@ -14,7 +14,7 @@ int main(int argc, char* argv[]) {
   std::size_t max_level = 12;
 
   // Simulation parameters
-  double Tf  = 240e-6;
+  double Tf  = 3.2e-3;
   double cfl = 0.4;
 
   // Output parameters
@@ -24,16 +24,16 @@ int main(int argc, char* argv[]) {
   bool apply_pressure_relax  = true;
   bool apply_pressure_reinit = false;
   bool energy_update_phase_1 = true;
-  bool preserve_energy       = true;
+  bool preserve_energy       = false;
 
   // Create the instance of the class to perform the simulation
-  auto Relaxation_Rusanov_Sim = Relaxation(min_corner, max_corner, min_level, max_level,
+  auto Relaxation_Suliciu_Sim = Relaxation(min_corner, max_corner, min_level, max_level,
                                            Tf, cfl, nfiles,
                                            apply_velocity_relax, apply_pressure_relax,
                                            apply_pressure_reinit, energy_update_phase_1,
                                            preserve_energy);
 
-  Relaxation_Rusanov_Sim.run();
+  Relaxation_Suliciu_Sim.run();
 
   return 0;
 }

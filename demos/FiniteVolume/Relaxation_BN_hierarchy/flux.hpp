@@ -22,11 +22,11 @@ namespace EquationData {
   static constexpr std::size_t NVARS = ALPHA2_RHO2_E2_INDEX + 1;
 
   // Parameters related to the EOS for the two phases
-  static constexpr double gamma_1    = 4.4;
-  static constexpr double pi_infty_1 = 6e8;
+  static constexpr double gamma_1    = 2.35;
+  static constexpr double pi_infty_1 = 1e9;
   static constexpr double q_infty_1  = 0.0;
 
-  static constexpr double gamma_2    = 1.4;
+  static constexpr double gamma_2    = 1.43;
   static constexpr double pi_infty_2 = 0.0;
   static constexpr double q_infty_2  = 0.0;
 }
@@ -191,10 +191,8 @@ namespace samurai {
     const auto pres2R  = this->phase2.pres_value(rho2R, e2R);
     const auto c2R     = this->phase2.c_value(rho2R, pres2R);
 
-    const auto lambda = std::max(std::max(std::max(std::abs(vel1L_d + c1L), std::abs(vel1L_d - c1L)),
-                                          std::max(std::abs(vel1R_d + c1R), std::abs(vel1R_d - c1R))),
-                                 std::max(std::max(std::abs(vel2L_d + c2L), std::abs(vel2L_d - c2L)),
-                                          std::max(std::abs(vel2R_d + c2R), std::abs(vel2R_d - c2R))));
+    const auto lambda = std::max(std::max(std::abs(vel1L_d) + c1L, std::abs(vel1R_d) + c1R),
+                                 std::max(std::abs(vel2L_d) + c2L, std::abs(vel2R_d) + c2R));
 
     return 0.5*(this->evaluate_continuous_flux(qL, curr_d) + this->evaluate_continuous_flux(qR, curr_d)) - // centered contribution
            0.5*lambda*(qR - qL); // upwinding contribution
