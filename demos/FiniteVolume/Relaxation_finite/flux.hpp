@@ -191,10 +191,8 @@ namespace samurai {
     const auto pres2R  = this->phase2.pres_value(rho2R, e2R);
     const auto c2R     = this->phase2.c_value(rho2R, pres2R);
 
-    const auto lambda = std::max(std::max(std::max(std::abs(vel1L_d + c1L), std::abs(vel1L_d - c1L)),
-                                          std::max(std::abs(vel1R_d + c1R), std::abs(vel1R_d - c1R))),
-                                 std::max(std::max(std::abs(vel2L_d + c2L), std::abs(vel2L_d - c2L)),
-                                          std::max(std::abs(vel2R_d + c2R), std::abs(vel2R_d - c2R))));
+    const auto lambda = std::max(std::max(std::abs(vel1L_d) + c1L, std::abs(vel1R_d) + c1R),
+                                 std::max(std::abs(vel2L_d) + c2L, std::abs(vel2R_d) + c2R));
 
     return 0.5*(this->evaluate_continuous_flux(qL, curr_d) + this->evaluate_continuous_flux(qR, curr_d)) - // centered contribution
            0.5*lambda*(qR - qL); // upwinding contribution
@@ -269,7 +267,7 @@ namespace samurai {
     res(ALPHA1_RHO1_INDEX) = 0.0;
     res(ALPHA2_RHO2_INDEX) = 0.0;
 
-    // Interfacial velocity and interfacial pressure compute from right state
+    // Interfacial velocity and interfacial pressure computed from right state
     const auto velIR = qR(ALPHA1_RHO1_U1_INDEX + curr_d)/qR(ALPHA1_RHO1_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     const auto rho2R = qR(ALPHA2_RHO2_INDEX)/(1.0 - qR(ALPHA1_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     auto e2R         = qR(ALPHA2_RHO2_E2_INDEX)/qR(ALPHA2_RHO2_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
@@ -303,7 +301,7 @@ namespace samurai {
     res(ALPHA1_RHO1_INDEX) = 0.0;
     res(ALPHA2_RHO2_INDEX) = 0.0;
 
-    // Interfacial velocity and interfacial pressure compute from left state
+    // Interfacial velocity and interfacial pressure computed from left state
     const auto velIL = qL(ALPHA1_RHO1_U1_INDEX + curr_d)/qL(ALPHA1_RHO1_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     const auto rho2L = qL(ALPHA2_RHO2_INDEX)/(1.0 - qL(ALPHA1_INDEX)); /*--- TODO: Add treatment for vanishing volume fraction ---*/
     auto e2L         = qL(ALPHA2_RHO2_E2_INDEX)/qL(ALPHA2_RHO2_INDEX); /*--- TODO: Add treatment for vanishing volume fraction ---*/

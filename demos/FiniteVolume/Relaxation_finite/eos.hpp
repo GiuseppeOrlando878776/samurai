@@ -90,7 +90,7 @@ T SG_EOS<T>::e_value(const T rho, const T pres) const {
 //
 template<typename T>
 T SG_EOS<T>::c_value(const T rho, const T pres) const {
-  return std::sqrt(std::abs(gamma*(pres + pi_infty)/rho));
+  return std::sqrt(gamma*(pres + pi_infty)/rho);
 }
 
 
