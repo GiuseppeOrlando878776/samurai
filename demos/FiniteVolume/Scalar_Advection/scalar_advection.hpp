@@ -60,7 +60,7 @@ private:
 
   Field q; // The variable which stores the advected field
 
-  samurai::Advection_Flux_Cons<Field> numerical_flux; // Variable to compute the numerical flux
+  samurai::Advection_Flux<Field> numerical_flux; // Variable to compute the numerical flux
 
   Field_Vect vel;
 

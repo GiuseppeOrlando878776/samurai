@@ -81,12 +81,12 @@ namespace samurai {
                                                                                                          std::size_t curr_d) {
     FluxValue<cfg> res;
 
-    //res = 0.5*(vel_L + vel_R) > 0.0 ? 0.5*(vel_L + vel_R)*(qR - qL) : 0.0; /*--- Working ---*/
+    //res = 0.5*(vel_L + vel_R) > 0.0 ? 0.0 : -0.5*(vel_L + vel_R)*(qL - qR); /*--- Working ---*/
 
     const auto lambda = std::max(std::abs(vel_L), std::abs(vel_R));
 
-    res = -(0.5*(vel_L*qL + vel_R*qR) - 0.5*(vel_L + vel_R)*qR -
-            0.5*lambda*(qR - qL)); /*--- Stabilizing term ---*/
+    res = 0.5*(vel_L*qL + vel_R*qR) - 0.5*lambda*(qR - qL) -
+          (0.5*(vel_L + vel_R))*qL; /*--- Bassi-Rebay formulation ---*/
 
     return res;
 
@@ -104,12 +104,12 @@ namespace samurai {
                                                                                                          std::size_t curr_d) {
     FluxValue<cfg> res;
 
-    //res = 0.5*(vel_L + vel_R) > 0.0 ? 0.0 : 0.5*(vel_L + vel_R)*(qR - qL); /*--- Working ---*/
+    //res = 0.5*(vel_L + vel_R) > 0.0 ? 0.5*(vel_L + vel_R)*(qR - qL) : 0.0; /*--- Working ---*/
 
     const auto lambda = std::max(std::abs(vel_L), std::abs(vel_R));
 
-    res = (0.5*(vel_L*qL + vel_R*qR) - 0.5*(vel_L + vel_R)*qL -
-           0.5*lambda*(qR - qL)); /*--- Stabilizing term ---*/
+    res = -(0.5*(vel_L*qL + vel_R*qR) - 0.5*lambda*(qR - qL) -
+            (0.5*(vel_L + vel_R))*qR); /*--- Bassi-Rebay formulation ---*/
 
     return res;
   }
@@ -141,8 +141,8 @@ namespace samurai {
                                                 const auto& vel_R = vel[right];
 
                                                 samurai::FluxValuePair<cfg> flux;
-                                                flux[0] = compute_discrete_flux_right_left(qL, qR, vel_L, vel_R, d);
-                                                flux[1] = compute_discrete_flux_left_right(qL, qR, vel_L, vel_R, d);
+                                                flux[0] = compute_discrete_flux_left_right(qL, qR, vel_L, vel_R, d);
+                                                flux[1] = compute_discrete_flux_right_left(qL, qR, vel_L, vel_R, d);
 
                                                 return flux;
                                               };
