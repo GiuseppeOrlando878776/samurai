@@ -19,7 +19,7 @@ int main(int argc, char* argv[]) {
   double cfl = 0.45;
 
   // Output parameters
-  std::size_t nfiles = 100;
+  std::size_t nfiles = 20;
 
   // Create the instance of the class to perform the simulation
   auto Relaxation_Sim = Relaxation(min_corner, max_corner, min_level, max_level,
