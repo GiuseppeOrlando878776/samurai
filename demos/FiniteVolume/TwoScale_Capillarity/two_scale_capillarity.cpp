@@ -1,6 +1,7 @@
 // Copyright 2021 SAMURAI TEAM. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
+//
 #include "two_scale_capillarity.hpp"
 
 // Main function to run the program
@@ -20,10 +21,10 @@ int main(int argc, char* argv[]) {
 
   bool apply_relaxation = true;
 
-  bool mass_transfer = true;
+  bool mass_transfer = false;
 
   // Output parameters
-  std::size_t nfiles = 100;
+  std::size_t nfiles = 20;
 
   // Create the instance of the class to perform the simulation
   auto TwoScaleCapillarity_Sim = TwoScaleCapillarity(min_corner, max_corner, min_level, max_level,
