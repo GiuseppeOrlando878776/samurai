@@ -15,16 +15,20 @@ namespace fs = std::filesystem;
 
 #include "two_scale_capillarity_FV.hpp"
 
+// Add header file for the multiresolution
+#include <samurai/mr/adapt.hpp>
+
 // Specify the use of this namespace where we just store the indices
 // and, in this case, some parameters related to EOS
 using namespace EquationData;
 
 // This is the class for the simulation of a two-scale model
+// for the static bubble
 //
 template<std::size_t dim>
 class StaticBubble {
 public:
-  using Config = samurai::MRConfig<dim>;
+  using Config = samurai::MRConfig<dim, 1, 1, 1>;
 
   StaticBubble() = default; // Default constructor. This will do nothing
                             // and basically will never be used
@@ -68,23 +72,10 @@ private:
 
   // Now we declare a bunch of fields which depend from the state, but it is useful
   // to have it so as to avoid recomputation
-  Field_Scalar rho,
-               alpha1_bar,
-               alpha2_bar,
-               alpha1,
-               rho1,
-               p1,
-               alpha2,
-               rho2,
-               p2,
-               p_bar,
-               c,
-               mod_grad_alpha1_bar,
-               H,
-               rho1d;
+  Field_Scalar alpha1_bar,
+               H;
 
-  Field_Vect vel,
-             normal,
+  Field_Vect normal,
              grad_alpha1_bar;
 
   using gradient_type = decltype(samurai::make_gradient_order2<decltype(alpha1_bar)>());
@@ -96,11 +87,11 @@ private:
   double eps;                     // Tolerance when we want to avoid division by zero
   double mod_grad_alpha1_bar_min; // Minimum threshold for which not computing anymore the unit normal
 
-  LinearizedBarotropicEOS EOS_phase1,
-                          EOS_phase2; // The two variables which take care of the
-                                      // barotropic EOS to compute the speed of sound
+  LinearizedBarotropicEOS<> EOS_phase1,
+                            EOS_phase2; // The two variables which take care of the
+                                        // barotropic EOS to compute the speed of sound
 
-  samurai::RusanovFlux<Field> Rusanov_flux; // Auxiliary variable to cpmpute the flux
+  samurai::RusanovFlux<Field> Rusanov_flux; // Auxiliary variable to compute the flux
 
   /*--- Now, it's time to declare some member functions that we will employ ---*/
   void update_geometry(); // Auxiliary routine to compute normals and curvature
@@ -111,9 +102,7 @@ private:
 
   void apply_relaxation(); // Apply the relaxation
 
-  void update_auxiliary_fields_pre_relaxation(); // Update auxiliary fields which are not touched by relaxation
-
-  void update_auxiliary_fields_post_relaxation(); // Update auxiliary fields after relaxation are not touched by relaxation
+  void update_fields_post_relaxation(); // Update fields after relaxation
 };
 
 
@@ -132,8 +121,9 @@ StaticBubble<dim>::StaticBubble(const xt::xtensor_fixed<double, xt::xshape<dim>>
   eps(1e-9), mod_grad_alpha1_bar_min(0.0),
   EOS_phase1(EquationData::p0_phase1, EquationData::rho0_phase1, EquationData::c0_phase1),
   EOS_phase2(EquationData::p0_phase2, EquationData::rho0_phase2, EquationData::c0_phase2),
-  Rusanov_flux(EOS_phase1, EOS_phase2, eps) {
+  Rusanov_flux(EOS_phase1, EOS_phase2, eps, mod_grad_alpha1_bar_min) {
     std::cout << "Initializing variables " << std::endl;
+    std::cout << std::endl;
     init_variables();
 }
 
@@ -143,14 +133,16 @@ StaticBubble<dim>::StaticBubble(const xt::xtensor_fixed<double, xt::xshape<dim>>
 template<std::size_t dim>
 void StaticBubble<dim>::update_geometry() {
   samurai::update_ghost_mr(alpha1_bar);
+
   grad_alpha1_bar = gradient(alpha1_bar);
+
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
                          {
-                           mod_grad_alpha1_bar[cell] = std::sqrt(xt::sum(grad_alpha1_bar[cell]*grad_alpha1_bar[cell])());
+                           const auto mod_grad_alpha1_bar = std::sqrt(xt::sum(grad_alpha1_bar[cell]*grad_alpha1_bar[cell])());
 
-                           if(mod_grad_alpha1_bar[cell] > mod_grad_alpha1_bar_min) {
-                             normal[cell] = grad_alpha1_bar[cell]/mod_grad_alpha1_bar[cell];
+                           if(mod_grad_alpha1_bar > mod_grad_alpha1_bar_min) {
+                             normal[cell] = grad_alpha1_bar[cell]/mod_grad_alpha1_bar;
                            }
                            else {
                              for(std::size_t d = 0; d < dim; ++d) {
@@ -170,26 +162,10 @@ void StaticBubble<dim>::init_variables() {
   // Create conserved and auxiliary fields
   conserved_variables = samurai::make_field<double, EquationData::NVARS>("conserved", mesh);
 
-  rho        = samurai::make_field<double, 1>("rho", mesh);
-  vel        = samurai::make_field<double, dim>("vel", mesh);
-  alpha1_bar = samurai::make_field<double, 1>("alpha1_bar", mesh);
-  alpha2_bar = samurai::make_field<double, 1>("alpha2_bar", mesh);
-  alpha1     = samurai::make_field<double, 1>("alpha1", mesh);
-  rho1       = samurai::make_field<double, 1>("rho1", mesh);
-  p1         = samurai::make_field<double, 1>("p1", mesh);
-  alpha2     = samurai::make_field<double, 1>("alpha2", mesh);
-  rho2       = samurai::make_field<double, 1>("rho2", mesh);
-  p2         = samurai::make_field<double, 1>("p2", mesh);
-  p_bar      = samurai::make_field<double, 1>("p_bar", mesh);
-  c          = samurai::make_field<double, 1>("c", mesh);
-
-  mod_grad_alpha1_bar = samurai::make_field<double, 1>("mod_grad_alpha1_bar", mesh);
-  H                   = samurai::make_field<double, 1>("H", mesh);
-  normal              = samurai::make_field<double, dim>("normal", mesh);
-
-  grad_alpha1_bar     = samurai::make_field<double, dim>("grad_alpha1_bar", mesh);
-
-  rho1d = samurai::make_field<double, 1>("rho1d", mesh);
+  alpha1_bar      = samurai::make_field<double, 1>("alpha1_bar", mesh);
+  grad_alpha1_bar = samurai::make_field<double, dim>("grad_alpha1_bar", mesh);
+  normal          = samurai::make_field<double, dim>("normal", mesh);
+  H               = samurai::make_field<double, 1>("H", mesh);
 
   // Declare some constant parameters associated to the grid and to the
   // initial state
@@ -207,6 +183,7 @@ void StaticBubble<dim>::init_variables() {
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
                          {
+                           // Set large-scale volume fraction
                            const auto center = cell.center();
                            const double x    = center[0];
                            const double y    = center[1];
@@ -218,19 +195,7 @@ void StaticBubble<dim>::init_variables() {
                                                               (((r - R)*(r - R)/(eps_R*eps_R) - 1.0)*((r - R)*(r - R)/(eps_R*eps_R) - 1.0))), 0.0) :
                                             ((r < R) ? 1.0 : 0.0);
 
-                           conserved_variables[cell][ALPHA1_D_INDEX] = 0.0;
-                           conserved_variables[cell][SIGMA_D_INDEX]  = 0.0;
-
                            alpha1_bar[cell] = w;
-
-                           alpha1[cell] = alpha1_bar[cell]*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
-
-                           alpha2_bar[cell] = 1.0 - alpha1_bar[cell];
-
-                           alpha2[cell] = alpha2_bar[cell]*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
-
-                           vel[cell][0] = w*U_1 + (1.0 - w)*U_0;
-                           vel[cell][1] = V;
                          });
 
   // Compute the geometrical quantities
@@ -240,36 +205,54 @@ void StaticBubble<dim>::init_variables() {
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
                          {
-                           p1[cell] = EOS_phase2.get_p0();
-                           p1[cell] += (alpha1_bar[cell] > 1.0 - eps) ? EquationData::sigma/R : EquationData::sigma*H[cell];
-                           rho1[cell] = EOS_phase1.rho_value(p1[cell]);
+                           // Set small-scale variables
+                           conserved_variables[cell][ALPHA1_D_INDEX] = 0.0;
+                           conserved_variables[cell][SIGMA_D_INDEX]  = 0.0;
+                           conserved_variables[cell][M1_D_INDEX]     = conserved_variables[cell][ALPHA1_D_INDEX]*EOS_phase1.get_rho0();
 
-                           conserved_variables[cell][M1_INDEX] = (!std::isnan(rho1[cell])) ? alpha1[cell]*rho1[cell] : 0.0;
+                           // Set mass large-scale phase 1
+                           auto p1 = EOS_phase2.get_p0();
+                           p1 += (alpha1_bar[cell] > 1.0 - eps) ? EquationData::sigma/R : EquationData::sigma*H[cell];
+                           const auto rho1 = EOS_phase1.rho_value(p1);
 
-                           p2[cell]   = (alpha1_bar[cell] < 1.0 - eps) ? EOS_phase2.get_p0() : nan("");
-                           rho2[cell] = EOS_phase2.rho_value(p2[cell]);
+                           const auto alpha1 = alpha1_bar[cell]*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
 
-                           conserved_variables[cell][M2_INDEX] = (!std::isnan(rho2[cell])) ? alpha2[cell]*rho2[cell] : 0.0;
+                           conserved_variables[cell][M1_INDEX] = (!std::isnan(rho1)) ? alpha1*rho1 : 0.0;
 
-                           conserved_variables[cell][M1_D_INDEX] = conserved_variables[cell][ALPHA1_D_INDEX]*EOS_phase1.get_rho0();
+                           // Set mass large-scale phase 2
+                           const auto p2   = (alpha1_bar[cell] < 1.0 - eps) ? EOS_phase2.get_p0() : nan("");
+                           const auto rho2 = EOS_phase2.rho_value(p2);
 
-                           rho[cell] = conserved_variables[cell][M1_INDEX]
-                                     + conserved_variables[cell][M2_INDEX]
-                                     + conserved_variables[cell][M1_D_INDEX];
+                           const auto alpha2_bar = 1.0 - alpha1_bar[cell];
+                           const auto alpha2     = alpha2_bar*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
 
-                           conserved_variables[cell][RHO_ALPHA1_BAR_INDEX] = alpha1_bar[cell]*rho[cell];
+                           conserved_variables[cell][M2_INDEX] = (!std::isnan(rho2)) ? alpha2*rho2 : 0.0;
 
-                           conserved_variables[cell][RHO_U_INDEX] = rho[cell]*vel[cell][0];
-                           conserved_variables[cell][RHO_U_INDEX + 1] = rho[cell]*vel[cell][1];
+                           // Set conserved variable associated to large-scale volume fraction
+                           const auto rho = conserved_variables[cell][M1_INDEX]
+                                          + conserved_variables[cell][M2_INDEX]
+                                          + conserved_variables[cell][M1_D_INDEX];
 
-                           p_bar[cell] = (alpha1_bar[cell] > eps && alpha2_bar[cell] > eps) ?
-                                         alpha1_bar[cell]*p1[cell] + alpha2_bar[cell]*p2[cell] :
-                                         ((alpha1_bar[cell] < eps) ? p2[cell] : p1[cell]);
+                           conserved_variables[cell][RHO_ALPHA1_BAR_INDEX] = rho*alpha1_bar[cell];
 
-                           const double c_squared = conserved_variables[cell][M1_INDEX]*EOS_phase1.c_value(rho1[cell])*EOS_phase1.c_value(rho1[cell])
-                                                  + conserved_variables[cell][M2_INDEX]*EOS_phase2.c_value(rho2[cell])*EOS_phase2.c_value(rho2[cell]);
-                           c[cell] = std::sqrt(c_squared/rho[cell])/
-                                     (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+                           // Set momentum
+                           const auto center = cell.center();
+                           const double x    = center[0];
+                           const double y    = center[1];
+
+                           const double r = std::sqrt((x - x0)*(x - x0) + (y - y0)*(y - y0));
+
+                           const double w = (r >= R && r < R + eps_R) ?
+                                            std::max(std::exp(2.0*(r - R)*(r - R)/(eps_R*eps_R)*((r - R)*(r - R)/(eps_R*eps_R) - 3.0)/
+                                                              (((r - R)*(r - R)/(eps_R*eps_R) - 1.0)*((r - R)*(r - R)/(eps_R*eps_R) - 1.0))), 0.0) :
+                                            ((r < R) ? 1.0 : 0.0);
+
+
+                           const auto vel_x = w*U_1 + (1.0 - w)*U_0;
+                           const auto vel_y = V;
+
+                           conserved_variables[cell][RHO_U_INDEX]     = rho*vel_x;
+                           conserved_variables[cell][RHO_U_INDEX + 1] = rho*vel_y;
                          });
 
   // Consider Dirichlet bcs
@@ -286,34 +269,32 @@ double StaticBubble<dim>::get_max_lambda() const {
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
                          {
-                           const double r = EquationData::sigma*mod_grad_alpha1_bar[cell]/(rho[cell]*c[cell]*c[cell]);
+                           // Compute the velocity along both horizontal and vertical direction
+                           const auto rho   = conserved_variables[cell][M1_INDEX]
+                                            + conserved_variables[cell][M2_INDEX]
+                                            + conserved_variables[cell][M1_D_INDEX];
+                           const auto vel_x = conserved_variables[cell][RHO_U_INDEX]/rho;
+                           const auto vel_y = conserved_variables[cell][RHO_U_INDEX + 1]/rho;
 
-                           res = std::max(std::max(std::abs(vel[cell][0]) + c[cell]*(1.0 + 0.125*r),
-                                                   std::abs(vel[cell][1]) + c[cell]*(1.0 + 0.125*r)),
+                           // Compute frozen speed of sound
+                           const auto alpha1    = alpha1_bar[cell]*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+                           const auto rho1      = (alpha1 > eps) ? conserved_variables[cell][M1_INDEX]/alpha1 : nan("");
+                           const auto alpha2    = 1.0 - alpha1 - conserved_variables[cell][ALPHA1_D_INDEX];
+                           const auto rho2      = (alpha2 > eps) ? conserved_variables[cell][M2_INDEX]/alpha2 : nan("");
+                           const auto c_squared = conserved_variables[cell][M1_INDEX]*EOS_phase1.c_value(rho1)*EOS_phase1.c_value(rho1)
+                                                + conserved_variables[cell][M2_INDEX]*EOS_phase2.c_value(rho2)*EOS_phase2.c_value(rho2);
+                           const auto c         = std::sqrt(c_squared/rho)/(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+
+                           // Add term due to surface tension
+                           const double r = EquationData::sigma*std::sqrt(xt::sum(grad_alpha1_bar[cell]*grad_alpha1_bar[cell])())/(rho*c*c);
+
+                           // Update eigenvalue estimate
+                           res = std::max(std::max(std::abs(vel_x) + c*(1.0 + 0.125*r),
+                                                   std::abs(vel_y) + c*(1.0 + 0.125*r)),
                                           res);
                          });
 
   return res;
-}
-
-
-// Update auxiliary fields which are not modified by the relaxation
-// (i.e density and vecloity, since no mass trasnfer occur)
-//
-template<std::size_t dim>
-void StaticBubble<dim>::update_auxiliary_fields_pre_relaxation() {
-  samurai::for_each_cell(mesh,
-                         [&](const auto& cell)
-                         {
-                           rho[cell] = conserved_variables[cell][M1_INDEX]
-                                     + conserved_variables[cell][M2_INDEX]
-                                     + conserved_variables[cell][M1_D_INDEX];
-
-                           vel[cell][0] = conserved_variables[cell][RHO_U_INDEX]/
-                                          rho[cell];
-                           vel[cell][1] = conserved_variables[cell][RHO_U_INDEX + 1]/
-                                          rho[cell];
-                         });
 }
 
 
@@ -331,31 +312,6 @@ void StaticBubble<dim>::apply_relaxation() {
     relaxation_applied = false;
     Newton_iter++;
 
-    // Update fields affected by the nonlinear function for which we seek a zero
-    samurai::for_each_cell(mesh,
-                           [&](const auto& cell)
-                           {
-                             // Compute partial densities since alpha1_bar is potentially changed
-                             // in the relaxation during the Newton loop
-                             alpha1[cell] = alpha1_bar[cell]*
-                                            (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
-                             rho1[cell]   = (alpha1[cell] > eps) ?
-                                            conserved_variables[cell][M1_INDEX]/alpha1[cell] :
-                                            nan("");
-                             p1[cell]     = EOS_phase1.pres_value(rho1[cell]);
-
-                             alpha2[cell] = 1.0
-                                          - alpha1[cell]
-                                          - conserved_variables[cell][ALPHA1_D_INDEX];
-                             rho2[cell]   = (alpha2[cell] > eps) ?
-                                            conserved_variables[cell][M2_INDEX]/alpha2[cell] :
-                                            nan("");
-                             p2[cell]     = EOS_phase2.pres_value(rho2[cell]);
-
-                             rho1d[cell]  = (conserved_variables[cell][M1_D_INDEX] > eps && conserved_variables[cell][ALPHA1_D_INDEX] > eps) ?
-                                            conserved_variables[cell][M1_D_INDEX]/conserved_variables[cell][ALPHA1_D_INDEX] : EquationData::rho0_phase1;
-                           });
-
     // Recompute geometric quantities (curvature potentially changed in the Newton loop)
     update_geometry();
 
@@ -363,19 +319,28 @@ void StaticBubble<dim>::apply_relaxation() {
     samurai::for_each_cell(mesh,
                            [&](const auto& cell)
                            {
+                             // Update auxiliary values affected by the nonlinear function for which we seek a zero
+                             const auto alpha1 = alpha1_bar[cell]*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+                             const auto rho1   = (alpha1 > eps) ? conserved_variables[cell][M1_INDEX]/alpha1 : nan("");
+                             const auto p1     = EOS_phase1.pres_value(rho1);
+
+                             const auto alpha2 = 1.0 - alpha1 - conserved_variables[cell][ALPHA1_D_INDEX];
+                             const auto rho2   = (alpha2 > eps) ? conserved_variables[cell][M2_INDEX]/alpha2 : nan("");
+                             const auto p2     = EOS_phase2.pres_value(rho2);
+
                              // Compute the nonlinear function for which we seek the zero (basically the Laplace law)
-                             const auto F = (1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*(p1[cell] - p2[cell])
+                             const auto F = (1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*(p1 - p2)
                                           - EquationData::sigma*H[cell];
 
                              // Perform the relaxation only when really needed
-                             if(std::abs(F) > tol*EOS_phase1.get_p0() && alpha1_bar[cell] > eps && 1.0 - alpha1_bar[cell] > eps) {
+                             if(!std::isnan(F) && std::abs(F) > tol*EOS_phase1.get_p0() && alpha1_bar[cell] > eps && 1.0 - alpha1_bar[cell] > eps) {
                                relaxation_applied = true;
 
                                // Compute the derivative w.r.t large scale volume fraction recalling that for a barotropic EOS dp/drho = c^2
                                const auto dF_dalpha1_bar = -conserved_variables[cell][M1_INDEX]/(alpha1_bar[cell]*alpha1_bar[cell])*
-                                                            EOS_phase1.c_value(rho1[cell])*EOS_phase1.c_value(rho1[cell])
+                                                            EOS_phase1.c_value(rho1)*EOS_phase1.c_value(rho1)
                                                            -conserved_variables[cell][M2_INDEX]/((1.0 - alpha1_bar[cell])*(1.0 - alpha1_bar[cell]))*
-                                                            EOS_phase2.c_value(rho2[cell])*EOS_phase2.c_value(rho2[cell]);
+                                                            EOS_phase2.c_value(rho2)*EOS_phase2.c_value(rho2);
 
                                /*--- Compute the pseudo time step starting as initial guess from the ideal unmodified Newton method ---*/
                                double dtau_ov_epsilon = std::numeric_limits<double>::infinity();
@@ -411,49 +376,25 @@ void StaticBubble<dim>::apply_relaxation() {
     if(Newton_iter > 100) {
       std::cout << "Netwon method not converged" << std::endl;
       save(fs::current_path(), "static_bubble", "_diverged",
-           conserved_variables, vel, alpha1_bar, alpha1, p_bar, c, rho1, rho2, p1, p2, mod_grad_alpha1_bar, normal, grad_alpha1_bar, H);
+           conserved_variables, alpha1_bar, grad_alpha1_bar, normal, H);
       exit(1);
     }
   }
 }
 
 
-// Update auxiliary fields after relaxation
+// Update fields after relaxation
 //
 template<std::size_t dim>
-void StaticBubble<dim>::update_auxiliary_fields_post_relaxation() {
+void StaticBubble<dim>::update_fields_post_relaxation() {
   samurai::for_each_cell(mesh,
                          [&](const auto& cell)
                          {
-                           conserved_variables[cell][RHO_ALPHA1_BAR_INDEX] = alpha1_bar[cell]*rho[cell];
+                           const auto rho = conserved_variables[cell][M1_INDEX]
+                                          + conserved_variables[cell][M2_INDEX]
+                                          + conserved_variables[cell][M1_D_INDEX];
 
-                           alpha2_bar[cell] = 1.0 - alpha1_bar[cell];
-
-                           alpha1[cell] = alpha1_bar[cell]*
-                                          (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
-
-                           rho1[cell] = (alpha1[cell] > eps) ?
-                                        conserved_variables[cell][M1_INDEX]/alpha1[cell] :
-                                        nan("");
-                           p1[cell]   = EOS_phase1.pres_value(rho1[cell]);
-
-                           alpha2[cell] = 1.0
-                                        - alpha1[cell]
-                                        - conserved_variables[cell][ALPHA1_D_INDEX];
-
-                           rho2[cell] = (alpha2[cell] > eps) ?
-                                        conserved_variables[cell][M2_INDEX]/alpha2[cell] :
-                                        nan("");
-                           p2[cell]   = EOS_phase2.pres_value(rho2[cell]);
-
-                           p_bar[cell] = (alpha1_bar[cell] > eps && alpha2_bar[cell] > eps) ?
-                                         alpha1_bar[cell]*p1[cell] + alpha2_bar[cell]*p2[cell] :
-                                         ((alpha1_bar[cell] < eps) ? p2[cell] : p1[cell]);
-
-                           const auto c_squared = conserved_variables[cell][M1_INDEX]*EOS_phase1.c_value(rho1[cell])*EOS_phase1.c_value(rho1[cell])
-                                                + conserved_variables[cell][M2_INDEX]*EOS_phase2.c_value(rho2[cell])*EOS_phase2.c_value(rho2[cell]);
-                           c[cell] = std::sqrt(c_squared/rho[cell])/
-                                     (1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+                           conserved_variables[cell][RHO_ALPHA1_BAR_INDEX] = rho*alpha1_bar[cell];
                          });
 }
 
@@ -494,11 +435,11 @@ void StaticBubble<dim>::run() {
   auto conserved_variables_np1 = samurai::make_field<double, EquationData::NVARS>("conserved_np1", mesh);
 
   // Create the flux variable
-  auto numerical_flux = Rusanov_flux.make_two_scale_capillarity(normal, mod_grad_alpha1_bar);
+  auto numerical_flux = Rusanov_flux.make_two_scale_capillarity(grad_alpha1_bar);
 
   // Save the initial condition
   const std::string suffix_init = (nfiles != 1) ? "_ite_0" : "";
-  save(path, filename, suffix_init, conserved_variables, vel, alpha1_bar, alpha1, p_bar, c, rho1, rho2, p1, p2, mod_grad_alpha1_bar, normal, grad_alpha1_bar, H);
+  save(path, filename, suffix_init, conserved_variables, alpha1_bar, grad_alpha1_bar, normal, H);
 
   // Set initial time step
   double dx = samurai::cell_length(mesh[mesh_id_t::cells].max_level());
@@ -517,30 +458,40 @@ void StaticBubble<dim>::run() {
 
     std::cout << fmt::format("Iteration {}: t = {}, dt = {}", ++nt, t, dt) << std::endl;
 
+    // Apply mesh adaptation
+    samurai::update_ghost_mr(grad_alpha1_bar);
+    auto MRadaptation = samurai::make_MRAdapt(grad_alpha1_bar);
+    MRadaptation(1e-5, 0, conserved_variables, alpha1_bar);
+    // Resize the fields to be recomputed
+    normal.resize();
+    H.resize();
+    update_geometry();
+
     // Apply the numerical scheme without relaxation
-    samurai::update_ghost_mr(conserved_variables, mod_grad_alpha1_bar, normal);
-    samurai::update_bc(conserved_variables);
+    samurai::update_ghost_mr(conserved_variables);
     auto flux_conserved = numerical_flux(conserved_variables);
+    conserved_variables_np1.resize();
     conserved_variables_np1 = conserved_variables - dt*flux_conserved;
 
     std::swap(conserved_variables.array(), conserved_variables_np1.array());
 
-    // Update auxiliary useful fields which are not modified by relaxation (i.e density and velocity since no mass transfer occurs)
-    update_auxiliary_fields_pre_relaxation();
-
     // Apply relaxation if desired, which will modify alpha1_bar and, consequently, for what
-    // concerns next time step, rho_alpha1_bar and p_bar
+    // concerns next time step, rho_alpha1_bar
     samurai::for_each_cell(mesh,
                            [&](const auto& cell)
                            {
-                             alpha1_bar[cell] = conserved_variables[cell][RHO_ALPHA1_BAR_INDEX]/rho[cell];
+                             const auto rho = conserved_variables[cell][M1_INDEX]
+                                            + conserved_variables[cell][M2_INDEX]
+                                            + conserved_variables[cell][M1_D_INDEX];
+
+                             alpha1_bar[cell] = conserved_variables[cell][RHO_ALPHA1_BAR_INDEX]/rho;
                            });
     if(apply_relax) {
       apply_relaxation();
     }
 
-    // Update auxiliary useful fields (after relaxation)
-    update_auxiliary_fields_post_relaxation();
+    // Update conserved fields (after relaxation)
+    update_fields_post_relaxation();
     update_geometry();
 
     // Compute updated time step
@@ -549,8 +500,8 @@ void StaticBubble<dim>::run() {
 
     // Save the results
     if(t >= static_cast<double>(nsave + 1) * dt_save || t == Tf) {
-      const std::string suffix = (nfiles != 1) ? fmt::format("_ite_{}", ++nsave) : "";
-      save(path, filename, suffix, conserved_variables, vel, alpha1_bar, alpha1, p_bar, c, rho1, rho2, p1, p2, mod_grad_alpha1_bar, normal, grad_alpha1_bar, H);
+      const std::string suffix = (nfiles != 1) ? fmt::format("_min_level_{}_max_level_{}_ite_{}", mesh.min_level(), mesh.max_level(), ++nsave) : "";
+      save(path, filename, suffix, conserved_variables, alpha1_bar, grad_alpha1_bar, normal, H);
     }
   }
 }
