@@ -11,17 +11,17 @@ int main(int argc, char* argv[]) {
 
   // Mesh parameters
   xt::xtensor_fixed<double, xt::xshape<dim>> min_corner = {0.0, 0.0};
-  xt::xtensor_fixed<double, xt::xshape<dim>> max_corner = {0.75, 0.75};
-  std::size_t min_level = 8;
-  std::size_t max_level = 8;
+  xt::xtensor_fixed<double, xt::xshape<dim>> max_corner = {4.0, 2.0};
+  std::size_t min_level = 9;
+  std::size_t max_level = 9;
 
   // Simulation parameters
-  double Tf  = 1e-4;
-  double cfl = 0.5;
+  double Tf  = 1.5;
+  double cfl = 0.4;
 
   bool apply_relaxation = true;
 
-  bool mass_transfer = false;
+  bool mass_transfer = true;
 
   // Output parameters
   std::size_t nfiles = 20;

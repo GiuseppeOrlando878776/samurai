@@ -6,9 +6,9 @@ namespace EquationData {
   static constexpr std::size_t dim = 2;
 
   // Declare parameter related to surface tension coefficient
-  static constexpr double sigma = 1.0;
+  static constexpr double sigma = 1e-2;
   static constexpr double kappa = 1.0;
-  static constexpr double Hmax  = 1e3;
+  static constexpr double Hmax  = 40.0;
 
   // Declare some parameters related to EOS.
   static constexpr double p0_phase1   = 1e5;
@@ -17,8 +17,8 @@ namespace EquationData {
   static constexpr double rho0_phase1 = 1e3;
   static constexpr double rho0_phase2 = 1.0;
 
-  static constexpr double c0_phase1   = 1.5e3;
-  static constexpr double c0_phase2   = 1e2;
+  static constexpr double c0_phase1   = 1e1;
+  static constexpr double c0_phase2   = 1e1;
 
   // Use auxiliary variables for the indices for the sake of generality
   static constexpr std::size_t M1_INDEX             = 0;

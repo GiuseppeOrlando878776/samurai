@@ -82,10 +82,10 @@ private:
   Field_Vect normal,
              grad_alpha1_bar;
 
-  using gradient_type = decltype(samurai::make_gradient<decltype(alpha1_bar)>());
+  using gradient_type = decltype(samurai::make_gradient_order2<decltype(alpha1_bar)>());
   gradient_type gradient;
 
-  using divergence_type = decltype(samurai::make_divergence<decltype(normal)>());
+  using divergence_type = decltype(samurai::make_divergence_order2<decltype(normal)>());
   divergence_type divergence;
 
   double eps;                     // Tolerance when we want to avoid division by zero
@@ -116,11 +116,11 @@ TwoScaleCapillarity<dim>::TwoScaleCapillarity(const xt::xtensor_fixed<double, xt
                                               std::size_t min_level, std::size_t max_level,
                                               double Tf_, double cfl_, std::size_t nfiles_,
                                               bool apply_relax_, bool mass_transfer_):
-  box(min_corner, max_corner), mesh(box, min_level, max_level, {false, false}),
+  box(min_corner, max_corner), mesh(box, min_level, max_level, {false, true}),
   apply_relax(apply_relax_), Tf(Tf_), cfl(cfl_), mass_transfer(mass_transfer_), nfiles(nfiles_),
-  gradient(samurai::make_gradient<decltype(alpha1_bar)>()),
-  divergence(samurai::make_divergence<decltype(normal)>()),
-  eps(1e-9), mod_grad_alpha1_bar_min(0.0),
+  gradient(samurai::make_gradient_order2<decltype(alpha1_bar)>()),
+  divergence(samurai::make_divergence_order2<decltype(normal)>()),
+  eps(1e-9), mod_grad_alpha1_bar_min(1e-10),
   EOS_phase1(EquationData::p0_phase1, EquationData::rho0_phase1, EquationData::c0_phase1),
   EOS_phase2(EquationData::p0_phase2, EquationData::rho0_phase2, EquationData::c0_phase2),
   Rusanov_flux(EOS_phase1, EOS_phase2, eps, mod_grad_alpha1_bar_min) {
@@ -174,13 +174,12 @@ void TwoScaleCapillarity<dim>::init_variables() {
 
   // Declare some constant parameters associated to the grid and to the
   // initial state
-  const double L     = 0.75;
-  const double x0    = 0.5*L;
-  const double y0    = 0.5*L;
-  const double R     = 0.2;
-  const double eps_R = 0.2*R;
+  const double x0    = 1.0;
+  const double y0    = 1.0;
+  const double R     = 0.15;
+  const double eps_R = 0.6*R;
 
-  const double U_0 = 0.0;
+  const double U_0 = 6.66;
   const double U_1 = 0.0;
   const double V   = 0.0;
 
@@ -195,10 +194,12 @@ void TwoScaleCapillarity<dim>::init_variables() {
 
                            const double r = std::sqrt((x - x0)*(x - x0) + (y - y0)*(y - y0));
 
-                           const double w = (r >= R && r < R + eps_R) ?
-                                            std::max(std::exp(2.0*(r - R)*(r - R)/(eps_R*eps_R)*((r - R)*(r - R)/(eps_R*eps_R) - 3.0)/
-                                                              (((r - R)*(r - R)/(eps_R*eps_R) - 1.0)*((r - R)*(r - R)/(eps_R*eps_R) - 1.0))), 0.0) :
-                                            ((r < R) ? 1.0 : 0.0);
+                           double w = (r >= R - 0.5*eps_R && r < R + 0.5*eps_R) ?
+                                      std::max(0.5 + 0.5*std::tanh(-8.0*((r - R + eps / 2) / eps)), 0.0) :
+                                      ((r < R - 0.5*eps_R) ? 1.0 : 0.0);
+                           if(w < 1e-15) {
+                             w = 0.0;
+                           }
 
                            alpha1_bar[cell] = w;
                          });
@@ -217,21 +218,13 @@ void TwoScaleCapillarity<dim>::init_variables() {
 
                            // Set mass large-scale phase 1
                            auto p1 = EOS_phase2.get_p0();
-                           p1 += (alpha1_bar[cell] > 1.0 - eps) ? EquationData::sigma/R : EquationData::sigma*H[cell];
+                           p1 += (alpha1_bar[cell] > 1.0 - eps) ? EquationData::sigma/R : ((alpha1_bar[cell] > 0.0) ? EquationData::sigma*H[cell] : 0.0);
                            const auto rho1 = EOS_phase1.rho_value(p1);
 
-                           const auto alpha1 = alpha1_bar[cell]*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+                           conserved_variables[cell][M1_INDEX] = (!std::isnan(rho1)) ? alpha1_bar[cell]*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*rho1 : 0.0;
 
-                           conserved_variables[cell][M1_INDEX] = (!std::isnan(rho1)) ? alpha1*rho1 : 0.0;
-
-                           // Set mass large-scale phase 2
-                           const auto p2   = (alpha1_bar[cell] < 1.0 - eps) ? EOS_phase2.get_p0() : nan("");
-                           const auto rho2 = EOS_phase2.rho_value(p2);
-
-                           const auto alpha2_bar = 1.0 - alpha1_bar[cell];
-                           const auto alpha2     = alpha2_bar*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
-
-                           conserved_variables[cell][M2_INDEX] = (!std::isnan(rho2)) ? alpha2*rho2 : 0.0;
+                           // Set mass phase 2
+                           conserved_variables[cell][M2_INDEX] = (1.0 - alpha1_bar[cell])*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*EOS_phase2.get_rho0();
 
                            // Set conserved variable associated to large-scale volume fraction
                            rho[cell] = conserved_variables[cell][M1_INDEX]
@@ -241,27 +234,15 @@ void TwoScaleCapillarity<dim>::init_variables() {
                            conserved_variables[cell][RHO_ALPHA1_BAR_INDEX] = rho[cell]*alpha1_bar[cell];
 
                            // Set momentum
-                           const auto center = cell.center();
-                           const double x    = center[0];
-                           const double y    = center[1];
-
-                           const double r = std::sqrt((x - x0)*(x - x0) + (y - y0)*(y - y0));
-
-                           const double w = (r >= R && r < R + eps_R) ?
-                                            std::max(std::exp(2.0*(r - R)*(r - R)/(eps_R*eps_R)*((r - R)*(r - R)/(eps_R*eps_R) - 3.0)/
-                                                              (((r - R)*(r - R)/(eps_R*eps_R) - 1.0)*((r - R)*(r - R)/(eps_R*eps_R) - 1.0))), 0.0) :
-                                            ((r < R) ? 1.0 : 0.0);
-
-
-                           const auto vel_x = w*U_1 + (1.0 - w)*U_0;
-                           const auto vel_y = V;
-
-                           conserved_variables[cell][RHO_U_INDEX]     = rho[cell]*vel_x;
-                           conserved_variables[cell][RHO_U_INDEX + 1] = rho[cell]*vel_y;
+                           conserved_variables[cell][RHO_U_INDEX]     = conserved_variables[cell][M1_INDEX]*U_1 + conserved_variables[cell][M2_INDEX]*U_0;
+                           conserved_variables[cell][RHO_U_INDEX + 1] = rho[cell]*V;
                          });
 
-  // Consider Dirichlet bcs
-  samurai::make_bc<samurai::Dirichlet<1>>(conserved_variables, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+  // Apply bcs
+  const samurai::DirectionVector<dim> left = {-1, 0};
+  const samurai::DirectionVector<dim> right = {1, 0};
+  samurai::make_bc<samurai::Dirichlet<1>>(conserved_variables, 0.0, 1.0*EOS_phase2.get_rho0(), 0.0, 0.0, 0.0, 0.0, EOS_phase2.get_rho0()*U_0, 0.0)->on(left);
+  samurai::make_bc<samurai::Neumann<1>>(conserved_variables, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)->on(right);
 }
 
 
@@ -344,10 +325,10 @@ void TwoScaleCapillarity<dim>::apply_relaxation() {
                            }
                          });
 
-  // Loop of Newton methodd
+  // Loop of Newton method
   std::size_t Newton_iter = 0;
   bool relaxation_applied = true;
-  bool mass_transfer_NR   = mass_transfer; /*--- This value cna change during the Newton loop ,so we create a copy rather modyfing the original ---*/
+  bool mass_transfer_NR   = mass_transfer; /*--- This value can change during the Newton loop, so we create a copy rather modyfing the original ---*/
   while(relaxation_applied == true) {
     relaxation_applied = false;
     Newton_iter++;
@@ -361,11 +342,11 @@ void TwoScaleCapillarity<dim>::apply_relaxation() {
                            {
                              // Update auxiliary values affected by the nonlinear function for which we seek a zero
                              const auto alpha1 = alpha1_bar[cell]*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
-                             const auto rho1   = (alpha1_bar[cell] > eps) ? conserved_variables[cell][M1_INDEX]/alpha1 : nan("");
+                             const auto rho1   = (alpha1 > eps) ? conserved_variables[cell][M1_INDEX]/alpha1 : nan("");
                              const auto p1     = EOS_phase1.pres_value(rho1);
 
                              const auto alpha2 = 1.0 - alpha1 - conserved_variables[cell][ALPHA1_D_INDEX];
-                             const auto rho2   = (1.0 - alpha1_bar[cell] > eps) ? conserved_variables[cell][M2_INDEX]/alpha2 : nan("");
+                             const auto rho2   = (alpha2 > eps) ? conserved_variables[cell][M2_INDEX]/alpha2 : nan("");
                              const auto p2     = EOS_phase2.pres_value(rho2);
 
                              const auto rho1d  = (conserved_variables[cell][M1_D_INDEX] > eps && conserved_variables[cell][ALPHA1_D_INDEX] > eps) ?
