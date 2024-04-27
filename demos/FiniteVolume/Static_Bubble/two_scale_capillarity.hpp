@@ -215,18 +215,13 @@ void StaticBubble<dim>::init_variables() {
                            p1 += (alpha1_bar[cell] > 1.0 - eps) ? EquationData::sigma/R : EquationData::sigma*H[cell];
                            const auto rho1 = EOS_phase1.rho_value(p1);
 
-                           const auto alpha1 = alpha1_bar[cell]*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
+                           conserved_variables[cell][M1_INDEX] = (!std::isnan(rho1)) ? alpha1_bar[cell]*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*rho1 : 0.0;
 
-                           conserved_variables[cell][M1_INDEX] = (!std::isnan(rho1)) ? alpha1*rho1 : 0.0;
-
-                           // Set mass large-scale phase 2
+                           // Set mass phase 2
                            const auto p2   = (alpha1_bar[cell] < 1.0 - eps) ? EOS_phase2.get_p0() : nan("");
                            const auto rho2 = EOS_phase2.rho_value(p2);
 
-                           const auto alpha2_bar = 1.0 - alpha1_bar[cell];
-                           const auto alpha2     = alpha2_bar*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX]);
-
-                           conserved_variables[cell][M2_INDEX] = (!std::isnan(rho2)) ? alpha2*rho2 : 0.0;
+                           conserved_variables[cell][M2_INDEX] = (!std::isnan(rho2)) ? (1.0 - alpha1_bar[cell])*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*rho2 : 0.0;
 
                            // Set conserved variable associated to large-scale volume fraction
                            const auto rho = conserved_variables[cell][M1_INDEX]
@@ -236,23 +231,8 @@ void StaticBubble<dim>::init_variables() {
                            conserved_variables[cell][RHO_ALPHA1_BAR_INDEX] = rho*alpha1_bar[cell];
 
                            // Set momentum
-                           const auto center = cell.center();
-                           const double x    = center[0];
-                           const double y    = center[1];
-
-                           const double r = std::sqrt((x - x0)*(x - x0) + (y - y0)*(y - y0));
-
-                           const double w = (r >= R && r < R + eps_R) ?
-                                            std::max(std::exp(2.0*(r - R)*(r - R)/(eps_R*eps_R)*((r - R)*(r - R)/(eps_R*eps_R) - 3.0)/
-                                                              (((r - R)*(r - R)/(eps_R*eps_R) - 1.0)*((r - R)*(r - R)/(eps_R*eps_R) - 1.0))), 0.0) :
-                                            ((r < R) ? 1.0 : 0.0);
-
-
-                           const auto vel_x = w*U_1 + (1.0 - w)*U_0;
-                           const auto vel_y = V;
-
-                           conserved_variables[cell][RHO_U_INDEX]     = rho*vel_x;
-                           conserved_variables[cell][RHO_U_INDEX + 1] = rho*vel_y;
+                           conserved_variables[cell][RHO_U_INDEX]     = conserved_variables[cell][M1_INDEX]*U_1 + conserved_variables[cell][M2_INDEX]*U_0;
+                           conserved_variables[cell][RHO_U_INDEX + 1] = rho*V;
                          });
 
   // Consider Dirichlet bcs
@@ -306,6 +286,42 @@ void StaticBubble<dim>::apply_relaxation() {
   const double tol    = 1e-8; /*--- Tolerance of the Newton method ---*/
   const double lambda = 0.9;  /*--- Parameter for bound preserving strategy ---*/
 
+  // Sanity check (and numerical artefacts to clear data) before Newton loop
+  samurai::for_each_cell(mesh,
+                         [&](const auto& cell)
+                         {
+                           // Sanity check for rho_alpha1_bar
+                           if(conserved_variables[cell][RHO_ALPHA1_BAR_INDEX] < 0.0) {
+                             if(conserved_variables[cell][RHO_ALPHA1_BAR_INDEX] < -1e-10) {
+                               std::cerr << " Negative large-scale mass phaase 1 at the beginning of the relaxation" << std::endl;
+                               exit(1);
+                             }
+                             conserved_variables[cell][RHO_ALPHA1_BAR_INDEX] = 0.0;
+                           }
+                           // Sanity check for m1
+                           if(conserved_variables[cell][M1_INDEX] < 0.0) {
+                             if(conserved_variables[cell][M1_INDEX] < -1e-14) {
+                               std::cerr << "Negative mass for phase 1" << std::endl;
+                               exit(1);
+                             }
+                             conserved_variables[cell][M1_INDEX] = 0.0;
+                           }
+                           // Sanity check for m2
+                           if(conserved_variables[cell][M2_INDEX] < 0.0) {
+                             if(conserved_variables[cell][M2_INDEX] < -1e-14) {
+                               std::cerr << "Negative mass for phase 2" << std::endl;
+                               exit(1);
+                             }
+                             conserved_variables[cell][M2_INDEX] = 0.0;
+                           }
+                           // Sanity check for alpha1_d
+                           if(conserved_variables[cell][ALPHA1_D_INDEX] > 1.0) {
+                             std::cerr << "Exceding value for small-scale volume fraction" << std::endl;
+                             exit(1);
+                           }
+                         });
+
+  // Loop of Newton method
   std::size_t Newton_iter = 0;
   bool relaxation_applied = true;
   while(relaxation_applied == true) {
@@ -368,7 +384,18 @@ void StaticBubble<dim>::apply_relaxation() {
                                  dalpha1_bar = dtau_ov_epsilon/(1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*F/
                                                (1.0 - dtau_ov_epsilon*(1.0 - conserved_variables[cell][ALPHA1_D_INDEX])*dF_dalpha1_bar);
                                }
-                               alpha1_bar[cell] += dalpha1_bar;
+                               if(alpha1_bar[cell] + dalpha1_bar < 0.0 && alpha1_bar[cell] + dalpha1_bar > 1.0) {
+                                 std::cerr << "Bounds exceeding value for large-scale volume fraction inside Newton step " << std::endl;
+                               }
+                               else {
+                                 alpha1_bar[cell] += dalpha1_bar;
+                               }
+
+                               // Update the rho_alpha1_bar variable
+                               const auto rho = conserved_variables[cell][M1_INDEX]
+                                              + conserved_variables[cell][M2_INDEX]
+                                              + conserved_variables[cell][M1_D_INDEX];
+                               conserved_variables[cell][RHO_ALPHA1_BAR_INDEX] = rho*alpha1_bar[cell];
                              }
                            });
 
@@ -380,22 +407,6 @@ void StaticBubble<dim>::apply_relaxation() {
       exit(1);
     }
   }
-}
-
-
-// Update fields after relaxation
-//
-template<std::size_t dim>
-void StaticBubble<dim>::update_fields_post_relaxation() {
-  samurai::for_each_cell(mesh,
-                         [&](const auto& cell)
-                         {
-                           const auto rho = conserved_variables[cell][M1_INDEX]
-                                          + conserved_variables[cell][M2_INDEX]
-                                          + conserved_variables[cell][M1_D_INDEX];
-
-                           conserved_variables[cell][RHO_ALPHA1_BAR_INDEX] = rho*alpha1_bar[cell];
-                         });
 }
 
 
@@ -438,7 +449,7 @@ void StaticBubble<dim>::run() {
   auto numerical_flux = Rusanov_flux.make_two_scale_capillarity(grad_alpha1_bar);
 
   // Save the initial condition
-  const std::string suffix_init = (nfiles != 1) ? "_ite_0" : "";
+  const std::string suffix_init = (nfiles != 1) ? fmt::format("_min_level_{}_max_level_{}_ite_0", mesh.min_level(), mesh.max_level()) : "";
   save(path, filename, suffix_init, conserved_variables, alpha1_bar, grad_alpha1_bar, normal, H);
 
   // Set initial time step
@@ -487,11 +498,11 @@ void StaticBubble<dim>::run() {
                              alpha1_bar[cell] = conserved_variables[cell][RHO_ALPHA1_BAR_INDEX]/rho;
                            });
     if(apply_relax) {
+      //update_geometry();
       apply_relaxation();
     }
 
-    // Update conserved fields (after relaxation)
-    update_fields_post_relaxation();
+    // Update geometry (after relaxation)
     update_geometry();
 
     // Compute updated time step
